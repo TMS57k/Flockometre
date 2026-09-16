@@ -212,6 +212,23 @@
     pointer-events:none;
   }
   .frozen-badge.show{ opacity:1; }
+  .flip-btn{
+    position:absolute; top:10px; right:10px;
+    width:38px; height:38px;
+    border-radius:50%;
+    background:rgba(0,0,0,0.55);
+    border:1px solid rgba(255,255,255,0.25);
+    color:#fff;
+    font-size:1.15rem;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    -webkit-backdrop-filter:blur(4px);
+    backdrop-filter:blur(4px);
+    transition:transform 0.15s ease, opacity 0.2s ease;
+    z-index:5;
+  }
+  .flip-btn:active{ transform:scale(0.9); }
+  .flip-btn.hidden{ display:none; }
 
   .btn{
     margin-top:18px;
@@ -289,6 +306,19 @@
     font-size:0.68rem; opacity:0.4; text-align:center;
     flex-shrink:0;
   }
+  .visit-count{
+    display:inline-block;
+    margin-top:8px;
+    font-size:clamp(0.95rem, 3.2vw, 1.25rem);
+    font-weight:800;
+    opacity:1;
+    color:#fff;
+    letter-spacing:0.3px;
+    background:rgba(255,0,30,0.12);
+    border:1px solid rgba(255,0,30,0.35);
+    padding:6px 16px;
+    border-radius:100px;
+  }
 </style>
 </head>
 <body>
@@ -313,6 +343,7 @@
     <div class="overlay-flash" id="overlayFlash"></div>
     <div class="status-label" id="statusLabel"></div>
     <div class="frozen-badge" id="frozenBadge">⏸ Image figée</div>
+    <button class="flip-btn hidden" id="flipBtn" title="Changer de caméra" type="button">🔄</button>
   </div>
 
   <canvas id="captureCanvas" style="display:none;"></canvas>
@@ -328,8 +359,8 @@
   </div>
 
   <footer>
-    Flocko Mètre — résultat 100% aléatoire, à but purement comique 🎭<br>
-    <span id="visitCount">👀 chargement...</span>
+    Flocko Mètre — résultat basé sur des statistiques 📊<br>
+    <span id="visitCount" class="visit-count">👀 chargement...</span>
   </footer>
 
 <script>
@@ -350,17 +381,44 @@
   const policeLights = document.getElementById('policeLights');
   const lightRed = document.getElementById('lightRed');
   const lightBlue = document.getElementById('lightBlue');
+  const flipBtn = document.getElementById('flipBtn');
 
   let scanning = false;
   let cameraReady = false;
+  let currentFacingMode = 'user';
+  let currentStream = null;
+
+  async function startStream(facingMode){
+    // coupe le flux précédent avant d'en ouvrir un nouveau
+    if(currentStream){
+      currentStream.getTracks().forEach(track => track.stop());
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facingMode } },
+      audio: false
+    });
+    currentStream = stream;
+    video.srcObject = stream;
+    currentFacingMode = facingMode;
+    // la caméra frontale est mise en miroir, la caméra arrière non
+    video.style.transform = (facingMode === 'user') ? 'scaleX(-1)' : 'scaleX(1)';
+  }
 
   async function initCamera(){
     try{
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio:false });
-      video.srcObject = stream;
+      await startStream('user');
       cameraReady = true;
       cameraHint.textContent = "Caméra prête ✅";
       setTimeout(()=>{ cameraHint.style.opacity = 0; }, 1800);
+
+      // on affiche le bouton de bascule seulement si plusieurs caméras sont détectées
+      try{
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(d => d.kind === 'videoinput');
+        if(videoInputs.length > 1){
+          flipBtn.classList.remove('hidden');
+        }
+      }catch(e){ /* pas grave si l'énumération échoue */ }
     }catch(err){
       video.style.display = 'none';
       fallbackFace.style.display = 'flex';
@@ -368,6 +426,24 @@
     }
   }
   initCamera();
+
+  flipBtn.addEventListener('click', async () => {
+    if(!cameraReady) return;
+    flipBtn.disabled = true;
+    const nextMode = currentFacingMode === 'user' ? 'environment' : 'user';
+    try{
+      await startStream(nextMode);
+      // si l'image était figée, on repart en live avec la nouvelle caméra
+      video.play().catch(()=>{});
+      frozenBadge.classList.remove('show');
+    }catch(err){
+      // certains navigateurs ne supportent qu'une seule caméra malgré enumerateDevices
+      cameraHint.style.opacity = 1;
+      cameraHint.textContent = "Impossible de changer de caméra sur cet appareil";
+      setTimeout(()=>{ cameraHint.style.opacity = 0; }, 2200);
+    }
+    flipBtn.disabled = false;
+  });
 
   // Compteur de visites gratuit (service Abacus, aucune inscription nécessaire).
   // IMPORTANT : change "flocko-metre-TON-PSEUDO" par un identifiant unique
