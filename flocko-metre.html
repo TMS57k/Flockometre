@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Flocko Mètre">
+<meta name="theme-color" content="#1a0000">
+<title>Flocko Mètre — Scanner de Flocko</title>
+<meta name="description" content="Flocko Mètre : scanne ton visage et découvre en pourcentage si t'es un Flocko. Sirène, gyrophare et résultat immédiat, 100% gratuit.">
+<meta name="keywords" content="flocko metre, flocko mètre, scanner flocko, test flocko, suis-je un flocko">
+<meta property="og:title" content="Flocko Mètre — Scanner de Flocko">
+<meta property="og:description" content="Scanne ton visage et découvre ton pourcentage de Flocko. Sirène et gyrophare inclus.">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg1:#1a0000;
+    --bg2:#3d0000;
+    --bg3:#0d0000;
+    --accent:#ff0022;
+    --danger:#ff0022;
+    --safe:#22e07a;
+    --text:#fff0f0;
+    --card:rgba(255,0,30,0.08);
+    --border:rgba(255,0,30,0.3);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:linear-gradient(160deg,var(--bg1),var(--bg2) 50%,var(--bg3));
+    color:var(--text);
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
+    overscroll-behavior:none;
+  }
+  body{
+    display:flex; flex-direction:column; align-items:center;
+    min-height:100dvh;
+    padding:calc(env(safe-area-inset-top) + 20px) 16px calc(env(safe-area-inset-bottom) + 24px);
+  }
+  h1{
+    font-size:clamp(1.4rem, 5vw, 1.9rem);
+    margin:0 0 2px; text-align:center;
+    letter-spacing:0.5px;
+    background:linear-gradient(90deg,#ff0022,#ff6a00);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:0 0 20px rgba(255,0,34,0.4);
+  }
+  .subtitle{
+    opacity:0.7; font-size:0.82rem; margin-bottom:16px; text-align:center;
+  }
+  .scanner-wrap{
+    position:relative;
+    width:min(92vw, 440px);
+    aspect-ratio:1/1;
+    max-height:56vh;
+    border-radius:24px;
+    overflow:hidden;
+    background:#000;
+    border:2px solid var(--border);
+    box-shadow:0 10px 50px rgba(0,0,0,0.5);
+    flex-shrink:1;
+  }
+  .scanner-inner{
+    position:absolute;
+    inset:-6%;
+  }
+  video, .fallback-face{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    object-fit:cover;
+    transform:scaleX(-1);
+  }
+  .fallback-face{
+    display:flex; align-items:center; justify-content:center;
+    font-size:5rem; background:#1c1a33;
+    transform:none;
+  }
+  .scanline{
+    position:absolute; left:0; right:0; height:3px;
+    background:linear-gradient(90deg, transparent, #fff, transparent);
+    box-shadow:0 0 12px 4px rgba(255,255,255,0.8);
+    top:0; opacity:0;
+    pointer-events:none;
+  }
+  .scanning .scanline{
+    opacity:1;
+    animation:scan 1.1s linear infinite;
+  }
+  @keyframes scan{
+    0%{top:0%;}
+    100%{top:100%;}
+  }
+
+  /* Gyrophare de police : deux halos rouge/bleu qui alternent en JS */
+  .police-lights{
+    position:absolute; inset:0;
+    pointer-events:none;
+    mix-blend-mode:screen;
+    opacity:0;
+    transition:opacity 0.15s ease;
+  }
+  .police-lights.show{ opacity:1; }
+  .light-red, .light-blue{
+    position:absolute; inset:-20%;
+    opacity:0;
+    transition:opacity 0.06s linear;
+  }
+  .light-red{ background:radial-gradient(circle, rgba(255,10,30,0.9), transparent 65%); }
+  .light-blue{ background:radial-gradient(circle, rgba(20,90,255,0.85), transparent 65%); }
+
+  .overlay-flash{
+    position:absolute; inset:0;
+    pointer-events:none;
+    opacity:0;
+    transition:opacity 0.25s ease;
+  }
+  .overlay-flash.show{ opacity:1; }
+  .overlay-flash.danger{
+    background:radial-gradient(circle, rgba(255,0,30,0.2), rgba(255,0,30,0.7));
+    animation:pulseDanger 0.3s ease-in-out infinite;
+  }
+  .overlay-flash.safe{
+    background:radial-gradient(circle, rgba(34,224,122,0.12), rgba(34,224,122,0.5));
+    animation:pulseSafe 1.4s ease-in-out infinite;
+  }
+  .overlay-flash.neutral{
+    background:radial-gradient(circle, rgba(255,170,0,0.12), rgba(255,170,0,0.45));
+    animation:pulseSafe 1.4s ease-in-out infinite;
+  }
+  .overlay-flash.overload{
+    background:radial-gradient(circle, rgba(255,0,30,0.35), rgba(120,0,10,0.9));
+    animation:pulseOverload 0.18s linear infinite;
+  }
+  @keyframes pulseDanger{
+    0%,100%{opacity:1;}
+    50%{opacity:0.25;}
+  }
+  @keyframes pulseSafe{
+    0%,100%{opacity:0.7;}
+    50%{opacity:0.35;}
+  }
+  @keyframes pulseOverload{
+    0%{opacity:1; filter:brightness(1.3);}
+    50%{opacity:0.15; filter:brightness(0.7);}
+    100%{opacity:1; filter:brightness(1.3);}
+  }
+  @keyframes flicker{
+    0%,100%{opacity:1;}
+    45%{opacity:1;}
+    50%{opacity:0.3;}
+    55%{opacity:1;}
+  }
+  .scanner-inner.shake-danger{
+    animation:shakeWrap 0.15s linear infinite;
+  }
+  @keyframes shakeWrap{
+    0%{transform:translate(0,0) rotate(0deg);}
+    25%{transform:translate(3px,-3px) rotate(-0.6deg);}
+    50%{transform:translate(-3px,3px) rotate(0.6deg);}
+    75%{transform:translate(-3px,-3px) rotate(-0.6deg);}
+    100%{transform:translate(3px,3px) rotate(0.6deg);}
+  }
+  .scanner-inner.shake-overload{
+    animation:shakeOverload 0.08s linear infinite;
+  }
+  @keyframes shakeOverload{
+    0%{transform:translate(0,0) rotate(0deg) scale(1);}
+    20%{transform:translate(5px,-4px) rotate(-1.2deg) scale(1.02);}
+    40%{transform:translate(-5px,4px) rotate(1.2deg) scale(1.02);}
+    60%{transform:translate(-4px,-5px) rotate(-1deg) scale(1.02);}
+    80%{transform:translate(4px,5px) rotate(1deg) scale(1.02);}
+    100%{transform:translate(0,0) rotate(0deg) scale(1);}
+  }
+  .corner{
+    position:absolute; width:28px; height:28px;
+    border-color:#fff; opacity:0.85;
+  }
+  .corner.tl{top:10px; left:10px; border-top:3px solid; border-left:3px solid; border-radius:6px 0 0 0;}
+  .corner.tr{top:10px; right:10px; border-top:3px solid; border-right:3px solid; border-radius:0 6px 0 0;}
+  .corner.bl{bottom:10px; left:10px; border-bottom:3px solid; border-left:3px solid; border-radius:0 0 0 6px;}
+  .corner.br{bottom:10px; right:10px; border-bottom:3px solid; border-right:3px solid; border-radius:0 0 6px 0;}
+
+  .status-label{
+    position:absolute; bottom:14px; left:0; right:0;
+    text-align:center;
+    font-weight:800; font-size:0.95rem;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    text-shadow:0 2px 8px rgba(0,0,0,0.8);
+    opacity:0;
+    transition:opacity 0.2s ease;
+    padding:0 10px;
+  }
+  .status-label.show{ opacity:1; }
+  .status-label.danger{ color:#ffdfe6; }
+  .status-label.safe{ color:#dffff0; }
+  .status-label.neutral{ color:#ffe9c7; }
+  .status-label.overload{
+    color:#fff;
+    font-size:1.05rem;
+    text-shadow:0 0 10px #ff0022, 0 0 20px #ff0022, 0 2px 8px rgba(0,0,0,0.9);
+    animation:flicker 0.25s linear infinite;
+  }
+
+  .frozen-badge{
+    position:absolute; top:10px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.6); color:#fff; font-size:0.65rem;
+    font-weight:700; letter-spacing:1px; text-transform:uppercase;
+    padding:4px 10px; border-radius:100px; opacity:0; transition:opacity 0.2s;
+    pointer-events:none;
+  }
+  .frozen-badge.show{ opacity:1; }
+
+  .btn{
+    margin-top:18px;
+    padding:16px 36px;
+    border:none; border-radius:100px;
+    font-size:1rem; font-weight:800;
+    letter-spacing:0.5px;
+    text-transform:uppercase;
+    color:#fff;
+    background:linear-gradient(90deg,#ff0022,#ff6a00);
+    box-shadow:0 8px 28px rgba(255,0,34,0.5);
+    cursor:pointer;
+    transition:transform 0.15s ease, box-shadow 0.15s ease;
+    width:100%;
+    max-width:440px;
+    flex-shrink:0;
+  }
+  .btn:active{ transform:scale(0.96); }
+  .btn:disabled{ opacity:0.6; cursor:default; }
+
+  .result-card{
+    margin-top:14px;
+    width:100%;
+    max-width:440px;
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:18px;
+    padding:14px 20px;
+    text-align:center;
+    backdrop-filter:blur(6px);
+    display:none;
+    flex-shrink:0;
+  }
+  .result-card.show{ display:block; animation:fadeUp 0.35s ease; }
+  .result-card.overload-card{
+    border-color:#ff0022;
+    box-shadow:0 0 30px rgba(255,0,34,0.4);
+  }
+  @keyframes fadeUp{
+    from{opacity:0; transform:translateY(10px);}
+    to{opacity:1; transform:translateY(0);}
+  }
+  .percent{
+    font-size:clamp(1.9rem, 7vw, 2.6rem); font-weight:900; margin:2px 0;
+  }
+  .percent.danger{ color:var(--danger); }
+  .percent.safe{ color:var(--safe); }
+  .percent.neutral{ color:#ffaa00; }
+  .percent.overload{
+    color:#ff0022;
+    font-size:clamp(2.2rem, 8vw, 3.2rem);
+    text-shadow:0 0 16px rgba(255,0,34,0.9), 0 0 30px rgba(255,0,34,0.5);
+    animation:flicker 0.3s linear infinite;
+  }
+  .verdict{
+    font-size:1rem; font-weight:800; letter-spacing:0.5px;
+    margin-bottom:4px;
+  }
+  .verdict.danger{ color:var(--danger); }
+  .verdict.safe{ color:var(--safe); }
+  .verdict.neutral{ color:#ffaa00; }
+  .verdict.overload{
+    color:#ff0022;
+    text-shadow:0 0 10px rgba(255,0,34,0.7);
+  }
+  .desc{ font-size:0.82rem; opacity:0.75; }
+
+  .camera-hint{
+    margin-top:8px; font-size:0.72rem; opacity:0.55; text-align:center;
+    max-width:300px;
+    flex-shrink:0;
+  }
+  footer{
+    margin-top:auto; padding-top:16px;
+    font-size:0.68rem; opacity:0.4; text-align:center;
+    flex-shrink:0;
+  }
+</style>
+</head>
+<body>
+
+  <h1>🧊 Flocko Mètre</h1>
+  <div class="subtitle">Aucune pitié, scanne-toi si t'oses 🔥</div>
+
+  <div class="scanner-wrap" id="scannerWrap">
+    <div class="scanner-inner" id="scannerInner">
+      <video id="video" autoplay playsinline muted></video>
+      <div class="fallback-face" id="fallbackFace" style="display:none;">🙂</div>
+    </div>
+    <div class="scanline"></div>
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+    <div class="police-lights" id="policeLights">
+      <div class="light-red" id="lightRed"></div>
+      <div class="light-blue" id="lightBlue"></div>
+    </div>
+    <div class="overlay-flash" id="overlayFlash"></div>
+    <div class="status-label" id="statusLabel"></div>
+    <div class="frozen-badge" id="frozenBadge">⏸ Image figée</div>
+  </div>
+
+  <canvas id="captureCanvas" style="display:none;"></canvas>
+
+  <div class="camera-hint" id="cameraHint">Autorise l'accès à la caméra pour scanner ton visage 📷</div>
+
+  <button class="btn" id="scanBtn">Vas-y, scanne-moi</button>
+
+  <div class="result-card" id="resultCard">
+    <div class="verdict" id="verdictText"></div>
+    <div class="percent" id="percentText"></div>
+    <div class="desc" id="descText"></div>
+  </div>
+
+  <footer>Flocko Mètre — résultat 100% aléatoire, à but purement comique 🎭</footer>
+
+<script>
+  const video = document.getElementById('video');
+  const fallbackFace = document.getElementById('fallbackFace');
+  const scannerWrap = document.getElementById('scannerWrap');
+  const scannerInner = document.getElementById('scannerInner');
+  const scanBtn = document.getElementById('scanBtn');
+  const overlayFlash = document.getElementById('overlayFlash');
+  const statusLabel = document.getElementById('statusLabel');
+  const resultCard = document.getElementById('resultCard');
+  const verdictText = document.getElementById('verdictText');
+  const percentText = document.getElementById('percentText');
+  const descText = document.getElementById('descText');
+  const cameraHint = document.getElementById('cameraHint');
+  const captureCanvas = document.getElementById('captureCanvas');
+  const frozenBadge = document.getElementById('frozenBadge');
+  const policeLights = document.getElementById('policeLights');
+  const lightRed = document.getElementById('lightRed');
+  const lightBlue = document.getElementById('lightBlue');
+
+  let scanning = false;
+  let cameraReady = false;
+
+  async function initCamera(){
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio:false });
+      video.srcObject = stream;
+      cameraReady = true;
+      cameraHint.textContent = "Caméra prête ✅";
+      setTimeout(()=>{ cameraHint.style.opacity = 0; }, 1800);
+    }catch(err){
+      video.style.display = 'none';
+      fallbackFace.style.display = 'flex';
+      cameraHint.textContent = "Caméra non disponible — mode démo activé 😉";
+    }
+  }
+  initCamera();
+
+  // Empêche le zoom par double-tap et le pull-to-refresh, gênants en usage mobile
+  document.addEventListener('touchmove', (e) => {
+    if(e.touches.length > 1) e.preventDefault();
+  }, { passive:false });
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if(now - lastTouchEnd <= 300) e.preventDefault();
+    lastTouchEnd = now;
+  }, { passive:false });
+
+  const dangerMessages = [
+    "⚠️ FLOCKO DÉTECTÉ, ÇA SE VOIT DE LOIN",
+    "T'ES GRILLÉ, FLOCKO CONFIRMÉ",
+    "ALERTE ROUGE : FLOCKO MAXIMAL",
+    "AUCUN DOUTE, T'ES UN FLOCKO",
+    "FLOCKO NIVEAU EXPERT, RESPECT",
+    "LE SCANNER A HONTE POUR TOI"
+  ];
+  const safeMessages = [
+    "Ok c'est bon t'es pas un Flocko",
+    "Miraculeusement propre",
+    "Certifié non-Flocko (pour cette fois)",
+    "Aucune trace de flockitude"
+  ];
+  const overloadMessages = [
+    "🚨🚨 SURCHARGE FLOCKO DÉTECTÉE 🚨🚨",
+    "NIVEAU FLOCKO HORS BARÈME",
+    "LE CAPTEUR EXPLOSE DE FLOCKITUDE",
+    "ALERTE MAXIMALE, ÉVACUEZ LA ZONE",
+    "FLOCKO LÉGENDAIRE, JAMAIS VU ÇA",
+    "SYSTÈME EN PANIQUE, TROP DE FLOCKO"
+  ];
+
+  // ---------- Gyrophare de police ----------
+  let lightsInterval = null;
+
+  function startPoliceLights(percent, isOverload){
+    stopPoliceLights();
+    policeLights.classList.add('show');
+    const speed = isOverload ? 85 : Math.max(130, 600 - percent * 4.5);
+    const peak = isOverload ? 1 : Math.min(1, 0.3 + (percent / 100) * 0.7);
+    let toggle = false;
+    lightsInterval = setInterval(() => {
+      toggle = !toggle;
+      lightRed.style.opacity = toggle ? peak : 0.04;
+      lightBlue.style.opacity = toggle ? 0.04 : peak;
+    }, speed);
+  }
+
+  function stopPoliceLights(){
+    if(lightsInterval){ clearInterval(lightsInterval); lightsInterval = null; }
+    policeLights.classList.remove('show');
+    lightRed.style.opacity = 0;
+    lightBlue.style.opacity = 0;
+  }
+
+  // ---------- Sirène de police (Web Audio, générée, aucun fichier externe) ----------
+  let audioCtx = null;
+  function getAudioCtx(){
+    if(!audioCtx){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if(audioCtx.state === 'suspended'){ audioCtx.resume(); }
+    return audioCtx;
+  }
+
+  function playPoliceSiren(percent, isOverload){
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    const duration = isOverload ? 2.6 : 1.7;
+
+    // volume proportionnel au pourcentage : plus le score est élevé, plus c'est fort
+    let peakGain;
+    if(isOverload){
+      peakGain = 0.85 + Math.min(1, (percent - 101) / 99) * 0.15; // 0.85 -> 1.0
+    }else{
+      peakGain = 0.10 + Math.min(1, Math.max(0, percent - 50) / 50) * 0.65; // 0.10 -> 0.75
+    }
+
+    const gainNode = ctx.createGain();
+    gainNode.gain.setValueAtTime(0.0001, now);
+    gainNode.gain.exponentialRampToValueAtTime(peakGain, now + 0.08);
+    gainNode.gain.setValueAtTime(peakGain, Math.max(now + 0.09, now + duration - 0.3));
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    let outputNode = gainNode;
+
+    if(isOverload){
+      // légère saturation pour un son plus agressif quand le score est très élevé
+      const shaper = ctx.createWaveShaper();
+      const curve = new Float32Array(256);
+      for(let i = 0; i < 256; i++){
+        const x = (i / 255) * 2 - 1;
+        curve[i] = Math.tanh(x * 3);
+      }
+      shaper.curve = curve;
+      shaper.oversample = '4x';
+      gainNode.connect(shaper);
+      outputNode = shaper;
+    }
+    outputNode.connect(ctx.destination);
+
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.connect(gainNode);
+
+    const lowF = isOverload ? 480 : 600;
+    const highF = isOverload ? 1350 : 950;
+    const sweepTime = isOverload ? 0.2 : 0.4;
+
+    let t = now;
+    osc.frequency.setValueAtTime(lowF, t);
+    const cycles = Math.ceil(duration / (sweepTime * 2));
+    for(let c = 0; c < cycles; c++){
+      osc.frequency.linearRampToValueAtTime(highF, t + sweepTime);
+      t += sweepTime;
+      osc.frequency.linearRampToValueAtTime(lowF, t + sweepTime);
+      t += sweepTime;
+    }
+
+    osc.start(now);
+    osc.stop(now + duration + 0.05);
+  }
+
+  function resetVisuals(){
+    overlayFlash.classList.remove('show','danger','safe','neutral','overload');
+    statusLabel.classList.remove('show','danger','safe','neutral','overload');
+    resultCard.classList.remove('show','overload-card');
+    verdictText.classList.remove('danger','safe','neutral','overload');
+    percentText.classList.remove('danger','safe','neutral','overload');
+    scannerInner.classList.remove('shake-danger','shake-overload');
+    frozenBadge.classList.remove('show');
+    stopPoliceLights();
+  }
+
+  // Heuristique simple de détection de visage : on capture une frame
+  // et on estime la proportion de pixels "couleur peau" au centre de l'image.
+  // Ce n'est pas une vraie détection faciale IA, juste une estimation rapide.
+  function detectFaceInVideo(){
+    if(!cameraReady || video.readyState < 2 || video.videoWidth === 0){
+      return null;
+    }
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    captureCanvas.width = w;
+    captureCanvas.height = h;
+    const ctx = captureCanvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, w, h);
+
+    const zx = Math.floor(w * 0.25);
+    const zy = Math.floor(h * 0.15);
+    const zw = Math.floor(w * 0.5);
+    const zh = Math.floor(h * 0.65);
+
+    let imageData;
+    try{
+      imageData = ctx.getImageData(zx, zy, zw, zh).data;
+    }catch(e){
+      return null;
+    }
+
+    let skinPixels = 0;
+    let totalSampled = 0;
+    const step = 4 * 3;
+
+    for(let i = 0; i < imageData.length; i += step){
+      const r = imageData[i];
+      const g = imageData[i+1];
+      const b = imageData[i+2];
+      totalSampled++;
+      const maxc = Math.max(r,g,b);
+      const minc = Math.min(r,g,b);
+      const isSkin = (r > 90 && g > 35 && b > 15) &&
+                     (maxc - minc > 12) &&
+                     (Math.abs(r-g) > 10) &&
+                     (r > g) && (r > b - 5);
+      if(isSkin) skinPixels++;
+    }
+
+    if(totalSampled === 0) return null;
+    return (skinPixels / totalSampled) > 0.09;
+  }
+
+  scanBtn.addEventListener('click', () => {
+    if(scanning) return;
+    scanning = true;
+    resetVisuals();
+    scanBtn.disabled = true;
+    scanBtn.textContent = "Scan en cours...";
+
+    // débloque l'audio dès le clic (geste utilisateur requis par les navigateurs)
+    getAudioCtx();
+
+    if(cameraReady && video.paused){
+      video.play().catch(()=>{});
+    }
+
+    scannerWrap.classList.add('scanning');
+
+    setTimeout(() => {
+      scannerWrap.classList.remove('scanning');
+
+      const faceDetected = detectFaceInVideo();
+
+      if(cameraReady){
+        video.pause();
+        frozenBadge.classList.add('show');
+      }
+
+      if(faceDetected === false){
+        overlayFlash.classList.add('show', 'neutral');
+        statusLabel.textContent = "😶 Pas de visage détecté";
+        statusLabel.classList.add('show', 'neutral');
+
+        verdictText.textContent = "❓ PAS DE VISAGE DÉTECTÉ";
+        verdictText.classList.add('neutral');
+
+        percentText.textContent = "-- %";
+        percentText.classList.add('neutral');
+
+        descText.textContent = "Replace-toi bien en face de la caméra et réessaie.";
+
+        resultCard.classList.add('show');
+
+        scanBtn.disabled = false;
+        scanBtn.textContent = "Réessayer le scan";
+        scanning = false;
+        return;
+      }
+
+      const percent = Math.floor(Math.random() * 101);
+      const isFlocko = percent >= 50;
+      const isOverload = isFlocko && Math.random() < 0.12;
+
+      if(isOverload){
+        const overloadPercent = 101 + Math.floor(Math.random() * 100);
+
+        overlayFlash.classList.add('show', 'overload');
+        statusLabel.textContent = overloadMessages[Math.floor(Math.random() * overloadMessages.length)];
+        statusLabel.classList.add('show', 'overload');
+        scannerInner.classList.add('shake-overload');
+        startPoliceLights(100, true);
+        playPoliceSiren(overloadPercent, true);
+
+        const overloadDescs = [
+          "Le scanner a dépassé sa propre échelle de mesure.",
+          "On n'avait jamais vu un score pareil, félicitations.",
+          "Niveau Flocko critique, aucune échelle ne suffit.",
+          "Le capteur a littéralement fumé pendant l'analyse."
+        ];
+
+        verdictText.textContent = "☢️ FLOCKO NIVEAU CRITIQUE ☢️";
+        verdictText.classList.add('overload');
+
+        percentText.textContent = overloadPercent + "% de Flocko";
+        percentText.classList.add('overload');
+
+        descText.textContent = overloadDescs[Math.floor(Math.random() * overloadDescs.length)];
+
+        resultCard.classList.add('show','overload-card');
+
+        scanBtn.disabled = false;
+        scanBtn.textContent = "Relancer le scan";
+        scanning = false;
+        return;
+      }
+
+      const color = isFlocko ? 'danger' : 'safe';
+      const messages = isFlocko ? dangerMessages : safeMessages;
+      const message = messages[Math.floor(Math.random() * messages.length)];
+
+      overlayFlash.classList.add('show', color);
+      statusLabel.textContent = message;
+      statusLabel.classList.add('show', color);
+
+      if(isFlocko){
+        scannerInner.classList.add('shake-danger');
+        startPoliceLights(percent, false);
+        playPoliceSiren(percent, false);
+      }
+
+      const dangerDescs = [
+        "Le scanner est formel, y'a pas photo.",
+        "Franchement on s'en doutait un peu.",
+        "Niveau de flockitude jamais vu ici.",
+        "Même l'algorithme est gêné pour toi."
+      ];
+      const safeDescs = [
+        "Analyse propre, aucun signe suspect.",
+        "Ça passe, mais on garde un œil sur toi.",
+        "Résultat inattendu mais on valide."
+      ];
+
+      verdictText.textContent = isFlocko ? "🚨 FLOCKO CONFIRMÉ 🚨" : "✅ PAS UN FLOCKO";
+      verdictText.classList.add(color);
+
+      percentText.textContent = percent + "% de Flocko";
+      percentText.classList.add(color);
+
+      const descs = isFlocko ? dangerDescs : safeDescs;
+      descText.textContent = descs[Math.floor(Math.random() * descs.length)];
+
+      resultCard.classList.add('show');
+
+      scanBtn.disabled = false;
+      scanBtn.textContent = "Relancer le scan";
+      scanning = false;
+    }, 2200);
+  });
+</script>
+
+</body>
+</html>
