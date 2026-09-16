@@ -327,7 +327,10 @@
     <div class="desc" id="descText"></div>
   </div>
 
-  <footer>Flocko Mètre — résultat 100% aléatoire, à but purement comique 🎭</footer>
+  <footer>
+    Flocko Mètre — résultat 100% aléatoire, à but purement comique 🎭<br>
+    <span id="visitCount">👀 chargement...</span>
+  </footer>
 
 <script>
   const video = document.getElementById('video');
@@ -365,6 +368,20 @@
     }
   }
   initCamera();
+
+  // Compteur de visites gratuit (service Abacus, aucune inscription nécessaire).
+  // IMPORTANT : change "flocko-metre-TON-PSEUDO" par un identifiant unique
+  // (ton pseudo GitHub par ex.) pour ne pas partager le compteur avec d'autres sites.
+  (async function initVisitCounter(){
+    const visitCountEl = document.getElementById('visitCount');
+    try{
+      const res = await fetch('https://abacus.jasoncameron.dev/hit/flocko-metre-TON-PSEUDO/visites');
+      const data = await res.json();
+      visitCountEl.textContent = '👀 ' + data.value.toLocaleString('fr-FR') + ' visites';
+    }catch(e){
+      visitCountEl.textContent = '';
+    }
+  })();
 
   // Empêche le zoom par double-tap et le pull-to-refresh, gênants en usage mobile
   document.addEventListener('touchmove', (e) => {
