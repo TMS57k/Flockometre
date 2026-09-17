@@ -48,7 +48,57 @@
     text-shadow:0 0 20px rgba(255,0,34,0.4);
   }
   .subtitle{
-    opacity:0.7; font-size:0.82rem; margin-bottom:16px; text-align:center;
+    opacity:0.7; font-size:0.82rem; margin-bottom:10px; text-align:center;
+  }
+  .rank-badge{
+    display:flex; align-items:center; gap:8px;
+    background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.15);
+    border-radius:100px;
+    padding:6px 16px;
+    margin-bottom:14px;
+    font-size:0.8rem;
+    font-weight:700;
+    flex-shrink:0;
+  }
+  .rank-badge .rank-icon{ font-size:1.1rem; }
+  .rank-badge .rank-record{ opacity:0.65; font-weight:600; }
+
+  #toastContainer{
+    position:fixed;
+    top:calc(env(safe-area-inset-top) + 14px);
+    left:50%;
+    transform:translateX(-50%);
+    z-index:999;
+    display:flex; flex-direction:column; gap:8px;
+    align-items:center;
+    width:min(92vw, 420px);
+    pointer-events:none;
+  }
+  .toast{
+    width:100%;
+    background:rgba(20,10,10,0.92);
+    border:1px solid rgba(255,255,255,0.2);
+    border-radius:14px;
+    padding:12px 16px;
+    text-align:center;
+    font-size:0.85rem;
+    font-weight:700;
+    color:#fff;
+    box-shadow:0 8px 24px rgba(0,0,0,0.5);
+    opacity:0;
+    transform:translateY(-16px);
+    animation:toastIn 0.3s ease forwards, toastOut 0.3s ease forwards 3.2s;
+  }
+  .toast.rankup{
+    border-color:#ffd23f;
+    box-shadow:0 8px 30px rgba(255,210,63,0.35);
+  }
+  @keyframes toastIn{
+    to{ opacity:1; transform:translateY(0); }
+  }
+  @keyframes toastOut{
+    to{ opacity:0; transform:translateY(-10px); }
   }
   .scanner-wrap{
     position:relative;
@@ -325,6 +375,13 @@
 
   <h1>🧊 Flocko Mètre</h1>
   <div class="subtitle">Aucune pitié, scanne-toi si t'oses 🔥</div>
+  <div class="rank-badge" id="rankBadge">
+    <span class="rank-icon">🥉</span>
+    <span id="rankName">Flocko de Bronze</span>
+    <span class="rank-record" id="rankRecord">— Record : --</span>
+  </div>
+
+  <div id="toastContainer"></div>
 
   <div class="scanner-wrap" id="scannerWrap">
     <div class="scanner-inner" id="scannerInner">
@@ -382,6 +439,11 @@
   const lightRed = document.getElementById('lightRed');
   const lightBlue = document.getElementById('lightBlue');
   const flipBtn = document.getElementById('flipBtn');
+  const rankBadge = document.getElementById('rankBadge');
+  const rankNameEl = document.getElementById('rankName');
+  const rankRecordEl = document.getElementById('rankRecord');
+  const rankIconEl = rankBadge.querySelector('.rank-icon');
+  const toastContainer = document.getElementById('toastContainer');
 
   let scanning = false;
   let cameraReady = false;
@@ -493,7 +555,149 @@
     "SYSTÈME EN PANIQUE, TROP DE FLOCKO"
   ];
 
-  // ---------- Gyrophare de police ----------
+  // ---------- Rangs Flocko (façon jeu compétitif) ----------
+  const RANKS = [
+    { min: 0,   max: 49,  name: 'Flocko de Bronze',       icon: '🥉' },
+    { min: 50,  max: 69,  name: "Flocko d'Argent",        icon: '🥈' },
+    { min: 70,  max: 89,  name: "Flocko d'Or",            icon: '🥇' },
+    { min: 90,  max: 100, name: 'Flocko de Platine',      icon: '💠' },
+    { min: 101, max: 150, name: 'Flocko de Diamant',      icon: '💎' },
+    { min: 151, max: 250, name: 'Flocko Champion',        icon: '👑' },
+    { min: 251, max: 400, name: 'Grand Champion Flocko',  icon: '🏆' },
+    { min: 401, max: 500, name: 'Flocko Suprême',         icon: '☢️' },
+  ];
+
+  function getRank(percent){
+    for(const r of RANKS){
+      if(percent >= r.min && percent <= r.max) return r;
+    }
+    return RANKS[RANKS.length - 1];
+  }
+
+  // Messages spéciaux par rang pour les scores très élevés (>100%)
+  const rankMessages = {
+    'Flocko de Diamant': overloadMessages,
+    'Flocko Champion': [
+      "👑 FLOCKO CHAMPION, RESPECT ÉTERNEL",
+      "T'ES DANS LE TOP DU CLASSEMENT FLOCKO",
+      "LE SCANNER TE SALUE, CHAMPION",
+      "NIVEAU CHAMPION ATTEINT, QUASI PERSONNE N'Y ARRIVE"
+    ],
+    'Grand Champion Flocko': [
+      "🏆 GRAND CHAMPION FLOCKO, LÉGENDE VIVANTE",
+      "PRESQUE PERSONNE N'ATTEINT CE NIVEAU",
+      "LE FLOCKO-MÈTRE N'A JAMAIS VU ÇA",
+      "TU ES DÉSORMAIS UNE RÉFÉRENCE FLOCKO"
+    ],
+    'Flocko Suprême': [
+      "☢️☢️ FLOCKO SUPRÊME, NIVEAU MYTHIQUE ☢️☢️",
+      "TU VIENS D'ENTRER DANS LA LÉGENDE",
+      "PROBABILITÉ QUASI NULLE, ET POURTANT TE VOILÀ",
+      "LE FLOCKO ULTIME. IL N'Y A RIEN AU-DESSUS."
+    ]
+  };
+
+  // ---------- Cascade de rareté (jusqu'à 500%) ----------
+  // Chaque palier a de moins en moins de chance d'être atteint.
+  // Ex : une fois dans la zone 101-200, il y a 1/1000 de "percer" vers 201-300, etc.
+  const ESCALATION_TIERS = [
+    { chance: 0.12,    min: 101, max: 200 },
+    { chance: 1/1000,  min: 201, max: 300 },
+    { chance: 1/5000,  min: 301, max: 400 },
+    { chance: 1/20000, min: 401, max: 500 },
+  ];
+
+  function rollFlockoResult(){
+    const base = Math.floor(Math.random() * 101); // 0-100
+    if(base < 50){
+      return { percent: base, isFlocko: false };
+    }
+
+    let achieved = null;
+    for(const tier of ESCALATION_TIERS){
+      if(Math.random() < tier.chance){
+        achieved = tier;
+      }else{
+        break;
+      }
+    }
+
+    if(!achieved){
+      return { percent: base, isFlocko: true };
+    }
+    const finalPercent = achieved.min + Math.floor(Math.random() * (achieved.max - achieved.min + 1));
+    return { percent: finalPercent, isFlocko: true };
+  }
+
+  // ---------- Notifications (toasts) ----------
+  function showToast(message, isRankUp){
+    const toast = document.createElement('div');
+    toast.className = 'toast' + (isRankUp ? ' rankup' : '');
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+    setTimeout(() => { toast.remove(); }, 3600);
+  }
+
+  // ---------- Record personnel (sauvegardé localement) ----------
+  const BEST_KEY = 'flockoBestScore';
+
+  function loadBest(){
+    try{
+      const raw = localStorage.getItem(BEST_KEY);
+      return raw ? JSON.parse(raw) : { percent: 0 };
+    }catch(e){
+      return { percent: 0 };
+    }
+  }
+
+  function saveBest(percent){
+    try{
+      localStorage.setItem(BEST_KEY, JSON.stringify({ percent }));
+    }catch(e){ /* localStorage indisponible, tant pis */ }
+  }
+
+  function refreshRankBadge(percent){
+    const rank = getRank(percent);
+    rankIconEl.textContent = rank.icon;
+    rankNameEl.textContent = rank.name;
+    rankRecordEl.textContent = '— Record : ' + percent + '%';
+  }
+
+  function handleNewResult(percent){
+    const best = loadBest();
+    const newRank = getRank(percent);
+    const oldRank = getRank(best.percent);
+
+    if(percent > best.percent){
+      saveBest(percent);
+      refreshRankBadge(percent);
+      if(newRank.name !== oldRank.name && best.percent > 0){
+        showToast('🏆 Nouveau rang débloqué : ' + newRank.icon + ' ' + newRank.name + ' !', true);
+      }else{
+        showToast('✨ Nouveau record personnel : ' + percent + '% !', false);
+      }
+    }
+  }
+
+  // Petit rappel quotidien : encourage à revenir tenter sa chance chaque jour
+  (function dailyReminder(){
+    const todayStr = new Date().toDateString();
+    let lastVisit = null;
+    try{ lastVisit = localStorage.getItem('flockoLastVisit'); }catch(e){}
+    if(lastVisit !== todayStr){
+      try{ localStorage.setItem('flockoLastVisit', todayStr); }catch(e){}
+      if(lastVisit){
+        setTimeout(() => {
+          showToast('🗓️ Nouveau jour, nouvelle chance de battre ton record !', false);
+        }, 900);
+      }
+    }
+  })();
+
+  // Affiche le rang/record sauvegardé dès le chargement de la page
+  refreshRankBadge(loadBest().percent);
+
+
   let lightsInterval = null;
 
   function startPoliceLights(percent, isOverload){
