@@ -82,6 +82,22 @@
     transition:transform 0.15s ease;
   }
   .trophy-btn:active{ transform:scale(0.9); }
+  .trophy-btn.attention{
+    animation:accountPulse 1.6s ease-in-out infinite;
+    position:relative;
+  }
+  .trophy-btn.attention::after{
+    content:'';
+    position:absolute; top:-2px; right:-2px;
+    width:10px; height:10px;
+    border-radius:50%;
+    background:#ff3c3c;
+    border:2px solid #1a0000;
+  }
+  @keyframes accountPulse{
+    0%, 100%{ box-shadow:0 0 0 0 rgba(255,210,63,0.6); }
+    50%{ box-shadow:0 0 0 8px rgba(255,210,63,0); }
+  }
 
   .trophy-overlay{
     position:fixed; inset:0;
@@ -1116,10 +1132,12 @@
       accountLoggedIn.style.display = 'block';
       accountPseudoDisplay.textContent = currentPseudo || '';
       accountBtn.textContent = '✅';
+      accountBtn.classList.remove('attention');
     }else{
       accountLoggedOut.style.display = 'block';
       accountLoggedIn.style.display = 'none';
       accountBtn.textContent = '👤';
+      accountBtn.classList.add('attention');
     }
   }
 
@@ -1317,6 +1335,18 @@
     });
 
     syncToCloud();
+
+    // Incite les visiteurs sans compte à en créer un, une seule fois
+    if(!currentUser){
+      let hintShown = null;
+      try{ hintShown = localStorage.getItem('flockoAccountHintShown'); }catch(e){}
+      if(!hintShown){
+        try{ localStorage.setItem('flockoAccountHintShown', '1'); }catch(e){}
+        setTimeout(() => {
+          showToast('👤 Crée un compte (bouton en haut) pour sauvegarder ta progression et apparaître au classement !', false);
+        }, 1600);
+      }
+    }
   }
 
   // Petit rappel quotidien : encourage à revenir tenter sa chance chaque jour
