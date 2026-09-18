@@ -703,7 +703,9 @@
   function startPoliceLights(percent, isOverload){
     stopPoliceLights();
     policeLights.classList.add('show');
-    const speed = isOverload ? 85 : Math.max(130, 600 - percent * 4.5);
+    const speed = isOverload
+      ? Math.max(40, 90 - ((percent - 101) / 399) * 50)
+      : Math.max(130, 600 - percent * 4.5);
     const peak = isOverload ? 1 : Math.min(1, 0.3 + (percent / 100) * 0.7);
     let toggle = false;
     lightsInterval = setInterval(() => {
@@ -738,7 +740,7 @@
     // volume proportionnel au pourcentage : plus le score est élevé, plus c'est fort
     let peakGain;
     if(isOverload){
-      peakGain = 0.85 + Math.min(1, (percent - 101) / 99) * 0.15; // 0.85 -> 1.0
+      peakGain = 0.85 + Math.min(1, (percent - 101) / 399) * 0.15; // 0.85 -> 1.0 sur 101-500
     }else{
       peakGain = 0.10 + Math.min(1, Math.max(0, percent - 50) / 50) * 0.65; // 0.10 -> 0.75
     }
@@ -894,19 +896,21 @@
         return;
       }
 
-      const percent = Math.floor(Math.random() * 101);
-      const isFlocko = percent >= 50;
-      const isOverload = isFlocko && Math.random() < 0.12;
+      const roll = rollFlockoResult();
+      const percent = roll.percent;
+      const isFlocko = roll.isFlocko;
+      const isOverload = isFlocko && percent > 100;
 
       if(isOverload){
-        const overloadPercent = 101 + Math.floor(Math.random() * 100);
+        const rank = getRank(percent);
+        const pool = rankMessages[rank.name] || overloadMessages;
 
         overlayFlash.classList.add('show', 'overload');
-        statusLabel.textContent = overloadMessages[Math.floor(Math.random() * overloadMessages.length)];
+        statusLabel.textContent = pool[Math.floor(Math.random() * pool.length)];
         statusLabel.classList.add('show', 'overload');
         scannerInner.classList.add('shake-overload');
-        startPoliceLights(100, true);
-        playPoliceSiren(overloadPercent, true);
+        startPoliceLights(percent, true);
+        playPoliceSiren(percent, true);
 
         const overloadDescs = [
           "Le scanner a dépassé sa propre échelle de mesure.",
@@ -915,15 +919,17 @@
           "Le capteur a littéralement fumé pendant l'analyse."
         ];
 
-        verdictText.textContent = "☢️ FLOCKO NIVEAU CRITIQUE ☢️";
+        verdictText.textContent = rank.icon + ' ' + rank.name.toUpperCase() + ' ' + rank.icon;
         verdictText.classList.add('overload');
 
-        percentText.textContent = overloadPercent + "% de Flocko";
+        percentText.textContent = percent + "% de Flocko";
         percentText.classList.add('overload');
 
         descText.textContent = overloadDescs[Math.floor(Math.random() * overloadDescs.length)];
 
         resultCard.classList.add('show','overload-card');
+
+        handleNewResult(percent);
 
         scanBtn.disabled = false;
         scanBtn.textContent = "Relancer le scan";
@@ -967,6 +973,8 @@
       descText.textContent = descs[Math.floor(Math.random() * descs.length)];
 
       resultCard.classList.add('show');
+
+      handleNewResult(percent);
 
       scanBtn.disabled = false;
       scanBtn.textContent = "Relancer le scan";
