@@ -14,6 +14,7 @@
 <meta property="og:title" content="Flocko Mètre — Scanner de Flocko">
 <meta property="og:description" content="Scanne ton visage et découvre ton pourcentage de Flocko. Sirène et gyrophare inclus.">
 <meta property="og:type" content="website">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
     --bg1:#1a0000;
@@ -155,6 +156,57 @@
   .trophy-info{ display:flex; flex-direction:column; }
   .trophy-name{ font-weight:800; font-size:0.88rem; }
   .trophy-desc{ font-size:0.72rem; opacity:0.7; }
+
+  .account-tabs{
+    display:flex; gap:8px; margin-bottom:14px;
+  }
+  .account-tab{
+    flex:1;
+    padding:8px;
+    border-radius:10px;
+    border:1px solid rgba(255,255,255,0.15);
+    background:rgba(255,255,255,0.04);
+    color:#fff; opacity:0.6;
+    font-size:0.82rem; font-weight:700;
+    cursor:pointer;
+  }
+  .account-tab.active{
+    opacity:1;
+    border-color:rgba(255,0,30,0.5);
+    background:rgba(255,0,30,0.15);
+  }
+  .account-input{
+    width:100%;
+    padding:12px 14px;
+    margin-bottom:10px;
+    border-radius:10px;
+    border:1px solid rgba(255,255,255,0.15);
+    background:rgba(255,255,255,0.06);
+    color:#fff;
+    font-size:0.9rem;
+  }
+  .account-input::placeholder{ color:rgba(255,255,255,0.4); }
+  .account-submit{ margin-top:4px; }
+  .account-msg{
+    margin-top:10px; font-size:0.78rem; text-align:center;
+    min-height:1em;
+    color:#ffaa00;
+  }
+  .account-msg.error{ color:#ff5c5c; }
+  .account-msg.success{ color:#22e07a; }
+  .account-welcome{ font-size:0.9rem; margin-bottom:6px; }
+  .account-hint{ font-size:0.78rem; opacity:0.65; margin-bottom:16px; }
+
+  .lb-item{
+    display:flex; align-items:center; gap:10px;
+    background:rgba(255,255,255,0.04);
+    border:1px solid rgba(255,255,255,0.1);
+    border-radius:12px;
+    padding:9px 14px;
+  }
+  .lb-rank{ font-weight:900; width:24px; text-align:center; opacity:0.7; }
+  .lb-pseudo{ flex:1; font-weight:700; font-size:0.86rem; }
+  .lb-elo{ font-weight:800; font-size:0.86rem; color:#ff6a00; }
 
   /* ---------- Optimisations mobile ---------- */
   @media (max-width: 480px){
@@ -500,7 +552,9 @@
       <span id="rankName">Flocko de Bronze</span>
       <span class="rank-elo" id="rankElo">1000 ELO</span>
     </div>
+    <button class="trophy-btn" id="leaderboardBtn" type="button" title="Classement mondial">🌍</button>
     <button class="trophy-btn" id="trophyBtn" type="button" title="Voir mes trophées">🏆</button>
+    <button class="trophy-btn" id="accountBtn" type="button" title="Mon compte">👤</button>
   </div>
   <div class="record-line" id="recordLine">Record personnel : --</div>
 
@@ -553,6 +607,42 @@
     </div>
   </div>
 
+  <div class="trophy-overlay" id="leaderboardOverlay">
+    <div class="trophy-panel">
+      <div class="trophy-header">
+        <h2>🌍 Classement mondial</h2>
+        <button class="trophy-close" id="leaderboardClose" type="button">✕</button>
+      </div>
+      <div class="trophy-list" id="leaderboardList"></div>
+    </div>
+  </div>
+
+  <div class="trophy-overlay" id="accountOverlay">
+    <div class="trophy-panel">
+      <div class="trophy-header">
+        <h2 id="accountTitle">👤 Mon compte</h2>
+        <button class="trophy-close" id="accountClose" type="button">✕</button>
+      </div>
+
+      <div id="accountLoggedOut">
+        <div class="account-tabs">
+          <button class="account-tab active" id="tabLogin" type="button">Connexion</button>
+          <button class="account-tab" id="tabSignup" type="button">Créer un compte</button>
+        </div>
+        <input class="account-input" id="accountPseudo" type="text" placeholder="Pseudo" maxlength="20" autocomplete="username">
+        <input class="account-input" id="accountPassword" type="password" placeholder="Mot de passe" autocomplete="current-password">
+        <button class="btn account-submit" id="accountSubmit" type="button">Se connecter</button>
+        <div class="account-msg" id="accountMsg"></div>
+      </div>
+
+      <div id="accountLoggedIn" style="display:none;">
+        <p class="account-welcome">Connecté en tant que <strong id="accountPseudoDisplay"></strong></p>
+        <p class="account-hint">Ton ELO et tes trophées sont maintenant synchronisés et visibles dans le classement mondial.</p>
+        <button class="btn account-submit" id="accountLogout" type="button">Se déconnecter</button>
+      </div>
+    </div>
+  </div>
+
 <script>
   const video = document.getElementById('video');
   const fallbackFace = document.getElementById('fallbackFace');
@@ -576,6 +666,18 @@
   const rankNameEl = document.getElementById('rankName');
   const rankIconEl = rankBadge.querySelector('.rank-icon');
   const toastContainer = document.getElementById('toastContainer');
+
+  // ---------- Supabase (comptes + classement mondial) ----------
+  const SUPABASE_URL = 'https://lkruxzqzctiaqymhhbsj.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_GrP6yRA96c5fYfWQhbWhTw_JEzCnLHW';
+  const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  let currentUser = null;
+  let currentPseudo = null;
+
+  function pseudoToEmail(pseudo){
+    const clean = pseudo.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    return clean + '@flocko.local';
+  }
 
   let scanning = false;
   let cameraReady = false;
@@ -777,7 +879,7 @@
   const ELO_KEY = 'flockoElo';
   const BEST_KEY = 'flockoBestScore';
   const STATS_KEY = 'flockoStats';
-  const START_ELO = 500;
+  const START_ELO = 800;
 
   const ELO_RANKS = [
     { min: 0,    name: 'Flocko de Bronze',      icon: '🥉' },
@@ -883,6 +985,11 @@
       check: (s, ctx) => ctx.elo >= 1000
     },
     {
+      id: 'chute_500', icon: '📉', name: 'Chute Libre', difficulty: 'hard',
+      desc: "Tomber à 500 ELO ou moins. Le seul chemin possible, c'est de remonter.",
+      check: (s, ctx) => ctx.elo <= 500
+    },
+    {
       id: 'increvable', icon: '🏋️', name: 'Increvable', difficulty: 'normal',
       desc: "Faire 20 scans au total.",
       check: (s) => s.totalScans >= 20
@@ -971,6 +1078,196 @@
   trophyClose.addEventListener('click', () => trophyOverlay.classList.remove('show'));
   trophyOverlay.addEventListener('click', (e) => { if(e.target === trophyOverlay) trophyOverlay.classList.remove('show'); });
 
+  // ---------- Comptes (Supabase Auth, pseudo + mot de passe) ----------
+  const accountBtn = document.getElementById('accountBtn');
+  const accountOverlay = document.getElementById('accountOverlay');
+  const accountClose = document.getElementById('accountClose');
+  const accountLoggedOut = document.getElementById('accountLoggedOut');
+  const accountLoggedIn = document.getElementById('accountLoggedIn');
+  const accountPseudoInput = document.getElementById('accountPseudo');
+  const accountPasswordInput = document.getElementById('accountPassword');
+  const accountSubmit = document.getElementById('accountSubmit');
+  const accountMsg = document.getElementById('accountMsg');
+  const accountPseudoDisplay = document.getElementById('accountPseudoDisplay');
+  const accountLogout = document.getElementById('accountLogout');
+  const tabLogin = document.getElementById('tabLogin');
+  const tabSignup = document.getElementById('tabSignup');
+  let accountMode = 'login';
+
+  function setAccountMode(mode){
+    accountMode = mode;
+    tabLogin.classList.toggle('active', mode === 'login');
+    tabSignup.classList.toggle('active', mode === 'signup');
+    accountSubmit.textContent = mode === 'login' ? 'Se connecter' : 'Créer le compte';
+    accountMsg.textContent = '';
+    accountMsg.className = 'account-msg';
+  }
+  tabLogin.addEventListener('click', () => setAccountMode('login'));
+  tabSignup.addEventListener('click', () => setAccountMode('signup'));
+
+  function setAccountMsg(text, type){
+    accountMsg.textContent = text;
+    accountMsg.className = 'account-msg' + (type ? ' ' + type : '');
+  }
+
+  function updateAccountUI(){
+    if(currentUser){
+      accountLoggedOut.style.display = 'none';
+      accountLoggedIn.style.display = 'block';
+      accountPseudoDisplay.textContent = currentPseudo || '';
+      accountBtn.textContent = '✅';
+    }else{
+      accountLoggedOut.style.display = 'block';
+      accountLoggedIn.style.display = 'none';
+      accountBtn.textContent = '👤';
+    }
+  }
+
+  accountBtn.addEventListener('click', () => accountOverlay.classList.add('show'));
+  accountClose.addEventListener('click', () => accountOverlay.classList.remove('show'));
+  accountOverlay.addEventListener('click', (e) => { if(e.target === accountOverlay) accountOverlay.classList.remove('show'); });
+
+  accountSubmit.addEventListener('click', async () => {
+    const pseudo = accountPseudoInput.value.trim();
+    const password = accountPasswordInput.value;
+
+    if(pseudo.length < 3){ setAccountMsg('Pseudo trop court (3 caractères min).', 'error'); return; }
+    if(password.length < 6){ setAccountMsg('Mot de passe trop court (6 caractères min).', 'error'); return; }
+
+    accountSubmit.disabled = true;
+    setAccountMsg('Un instant...', '');
+
+    const email = pseudoToEmail(pseudo);
+
+    try{
+      if(accountMode === 'signup'){
+        const { data, error } = await supabaseClient.auth.signUp({ email, password });
+        if(error) throw error;
+        currentUser = data.user;
+        currentPseudo = pseudo;
+
+        // on migre les données locales déjà accumulées vers le compte tout neuf
+        const elo = loadElo();
+        const best = loadBest().percent;
+        const stats = loadStats();
+        const { error: insertError } = await supabaseClient.from('profiles').insert({
+          id: currentUser.id, pseudo, elo, best_score: best, data: stats
+        });
+        if(insertError) throw insertError;
+
+        setAccountMsg('Compte créé, bienvenue ' + pseudo + ' !', 'success');
+      }else{
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if(error) throw error;
+        currentUser = data.user;
+
+        const { data: profile, error: profileError } = await supabaseClient
+          .from('profiles').select('*').eq('id', currentUser.id).single();
+        if(profileError) throw profileError;
+
+        currentPseudo = profile.pseudo;
+        // on récupère les données du compte (elles remplacent celles de cet appareil)
+        saveElo(profile.elo);
+        saveBest(profile.best_score);
+        saveStats(Object.assign(defaultStats(), profile.data || {}));
+
+        setAccountMsg('Connecté !', 'success');
+      }
+
+      refreshBadge();
+      updateAccountUI();
+      setTimeout(() => { accountOverlay.classList.remove('show'); }, 900);
+    }catch(err){
+      setAccountMsg(err.message === 'Invalid login credentials'
+        ? 'Pseudo ou mot de passe incorrect.'
+        : (err.message || 'Une erreur est survenue.'), 'error');
+    }
+    accountSubmit.disabled = false;
+  });
+
+  accountLogout.addEventListener('click', async () => {
+    await supabaseClient.auth.signOut();
+    currentUser = null;
+    currentPseudo = null;
+    updateAccountUI();
+    accountOverlay.classList.remove('show');
+    showToast('👋 Déconnecté. Tes scores restent sauvegardés sur ce compte.', false);
+  });
+
+  // Synchronise l'état local (ELO, record, stats) vers le compte en ligne
+  async function syncToCloud(){
+    if(!currentUser) return;
+    try{
+      await supabaseClient.from('profiles').update({
+        elo: loadElo(),
+        best_score: loadBest().percent,
+        data: loadStats(),
+        updated_at: new Date().toISOString()
+      }).eq('id', currentUser.id);
+    }catch(e){ /* pas grave si ça échoue, ça se resynchronisera au prochain scan */ }
+  }
+
+  // Reconnexion automatique si une session existante est trouvée
+  (async function restoreSession(){
+    try{
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if(session && session.user){
+        currentUser = session.user;
+        const { data: profile } = await supabaseClient
+          .from('profiles').select('*').eq('id', currentUser.id).single();
+        if(profile){
+          currentPseudo = profile.pseudo;
+          saveElo(profile.elo);
+          saveBest(profile.best_score);
+          saveStats(Object.assign(defaultStats(), profile.data || {}));
+          refreshBadge();
+        }
+      }
+    }catch(e){ /* pas de session active, tant pis */ }
+    updateAccountUI();
+  })();
+
+  // ---------- Classement mondial ----------
+  const leaderboardBtn = document.getElementById('leaderboardBtn');
+  const leaderboardOverlay = document.getElementById('leaderboardOverlay');
+  const leaderboardClose = document.getElementById('leaderboardClose');
+  const leaderboardList = document.getElementById('leaderboardList');
+
+  async function renderLeaderboard(){
+    leaderboardList.innerHTML = '<div style="text-align:center; opacity:0.6; padding:20px 0;">Chargement...</div>';
+    try{
+      const { data, error } = await supabaseClient
+        .from('profiles')
+        .select('pseudo, elo')
+        .order('elo', { ascending: false })
+        .limit(50);
+      if(error) throw error;
+
+      if(!data || data.length === 0){
+        leaderboardList.innerHTML = '<div style="text-align:center; opacity:0.6; padding:20px 0;">Personne n\'a encore de compte. Sois le premier !</div>';
+        return;
+      }
+
+      leaderboardList.innerHTML = '';
+      data.forEach((row, i) => {
+        const item = document.createElement('div');
+        item.className = 'lb-item';
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+        item.innerHTML =
+          '<div class="lb-rank">' + medal + '</div>' +
+          '<div class="lb-pseudo">' + row.pseudo + '</div>' +
+          '<div class="lb-elo">' + row.elo + ' ELO</div>';
+        leaderboardList.appendChild(item);
+      });
+    }catch(e){
+      leaderboardList.innerHTML = '<div style="text-align:center; opacity:0.6; padding:20px 0;">Impossible de charger le classement.</div>';
+    }
+  }
+
+  leaderboardBtn.addEventListener('click', () => { renderLeaderboard(); leaderboardOverlay.classList.add('show'); });
+  leaderboardClose.addEventListener('click', () => leaderboardOverlay.classList.remove('show'));
+  leaderboardOverlay.addEventListener('click', (e) => { if(e.target === leaderboardOverlay) leaderboardOverlay.classList.remove('show'); });
+
   function handleNewResult(percent){
     const isFlocko = percent >= 50;
     const isOverBar = percent > 100;
@@ -1018,6 +1315,8 @@
     newlyUnlocked.forEach(ach => {
       showToast('🏆 Trophée débloqué : ' + ach.icon + ' ' + ach.name, true);
     });
+
+    syncToCloud();
   }
 
   // Petit rappel quotidien : encourage à revenir tenter sa chance chaque jour
