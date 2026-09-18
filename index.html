@@ -851,10 +851,10 @@
   // Chaque palier a de moins en moins de chance d'être atteint.
   // Ex : une fois dans la zone 101-200, il y a 1/1000 de "percer" vers 201-300, etc.
   const ESCALATION_TIERS = [
-    { chance: 0.12,    min: 101, max: 200 },
-    { chance: 1/1000,  min: 201, max: 300 },
-    { chance: 1/5000,  min: 301, max: 400 },
-    { chance: 1/20000, min: 401, max: 500 },
+    { chance: 0.14,    min: 101, max: 200 },
+    { chance: 1/800,   min: 201, max: 300 },
+    { chance: 1/4000,  min: 301, max: 400 },
+    { chance: 1/17000, min: 401, max: 500 },
   ];
 
   function rollFlockoResult(){
@@ -900,12 +900,12 @@
   const ELO_RANKS = [
     { min: 0,    name: 'Flocko de Bronze',      icon: '🥉' },
     { min: 1000, name: "Flocko d'Argent",       icon: '🥈' },
-    { min: 1200, name: "Flocko d'Or",           icon: '🥇' },
-    { min: 1400, name: 'Flocko de Platine',     icon: '💠' },
-    { min: 1600, name: 'Flocko de Diamant',     icon: '💎' },
-    { min: 1800, name: 'Flocko Champion',       icon: '👑' },
-    { min: 2000, name: 'Grand Champion Flocko', icon: '🏆' },
-    { min: 2300, name: 'Flocko Suprême',        icon: '☢️' },
+    { min: 1300, name: "Flocko d'Or",           icon: '🥇' },
+    { min: 1700, name: 'Flocko de Platine',     icon: '💠' },
+    { min: 2200, name: 'Flocko de Diamant',     icon: '💎' },
+    { min: 2800, name: 'Flocko Champion',       icon: '👑' },
+    { min: 3500, name: 'Grand Champion Flocko', icon: '🏆' },
+    { min: 4500, name: 'Flocko Suprême',        icon: '☢️' },
   ];
 
   function getEloRank(elo){
@@ -918,14 +918,17 @@
 
   function computeEloChange(percent){
     if(percent > 100){
-      if(percent > 400) return 220;
-      if(percent > 300) return 140;
-      if(percent > 200) return 85;
-      return 45; // 101-200
+      if(percent > 400) return 260;
+      if(percent > 300) return 170;
+      if(percent > 200) return 100;
+      return 55; // 101-200
     }
-    // 0-100 : symétrique autour de 50, gains/pertes raisonnables (±25 max)
-    const diff = percent - 50;
-    return Math.round(diff * 0.5);
+    if(percent >= 50){
+      // gain généreux : jusqu'à +30 à 100%
+      return Math.round((percent - 50) * 0.6);
+    }
+    // perte plus douce que le gain équivalent, pour rester motivant : jusqu'à -18 à 0%
+    return -Math.round((50 - percent) * 0.35);
   }
 
   function loadElo(){
@@ -1012,8 +1015,8 @@
     },
     {
       id: 'diamant_rank', icon: '💎', name: 'Rang Diamant', difficulty: 'normal',
-      desc: "Atteindre le rang Flocko de Diamant (1600 ELO).",
-      check: (s, ctx) => ctx.elo >= 1600
+      desc: "Atteindre le rang Flocko de Diamant (2200 ELO).",
+      check: (s, ctx) => ctx.elo >= 2200
     },
     {
       id: 'record_x5', icon: '📈', name: 'En progression', difficulty: 'normal',
@@ -1032,13 +1035,13 @@
     },
     {
       id: 'grand_champion_rank', icon: '🏆', name: 'Grand Champion', difficulty: 'hard',
-      desc: "Atteindre le rang Grand Champion Flocko (2000 ELO).",
-      check: (s, ctx) => ctx.elo >= 2000
+      desc: "Atteindre le rang Grand Champion Flocko (3500 ELO).",
+      check: (s, ctx) => ctx.elo >= 3500
     },
     {
       id: 'supreme_rank_elo', icon: '👹', name: 'Suprématie Totale', difficulty: 'hard',
-      desc: "Atteindre le rang Flocko Suprême (2300 ELO) — quasi personne n'y arrive.",
-      check: (s, ctx) => ctx.elo >= 2300
+      desc: "Atteindre le rang Flocko Suprême (4500 ELO) — quasi personne n'y arrive.",
+      check: (s, ctx) => ctx.elo >= 4500
     },
     {
       id: 'marathon_100', icon: '🗿', name: 'Marathonien du Flocko', difficulty: 'hard',
@@ -1075,16 +1078,41 @@
     ACHIEVEMENTS.forEach(ach => {
       const unlocked = stats.unlocked.includes(ach.id);
       const isHard = ach.difficulty === 'hard';
+      const isEquipped = currentEquippedTrophy === ach.id;
       const item = document.createElement('div');
-      item.className = 'trophy-item' + (unlocked ? ' unlocked' : '') + (isHard ? ' hard' : '');
+      item.className = 'trophy-item' + (unlocked ? ' unlocked' : '') + (isHard ? ' hard' : '') + (isEquipped ? ' equipped' : '');
+      let equipBtnHtml = '';
+      if(unlocked){
+        equipBtnHtml = isEquipped
+          ? '<button class="equip-btn equipped-btn" data-id="' + ach.id + '">✅ Équipé</button>'
+          : '<button class="equip-btn" data-id="' + ach.id + '">Équiper</button>';
+      }
       item.innerHTML =
         '<div class="trophy-icon">' + (unlocked ? ach.icon : '🔒') + '</div>' +
         '<div class="trophy-info">' +
           '<div class="trophy-name">' + ach.name + (isHard ? ' <span class="hard-tag">DUR</span>' : '') + '</div>' +
           '<div class="trophy-desc">' + ach.desc + '</div>' +
-        '</div>';
+        '</div>' +
+        equipBtnHtml;
       list.appendChild(item);
     });
+
+    list.querySelectorAll('.equip-btn:not(.equipped-btn)').forEach(btn => {
+      btn.addEventListener('click', () => equipTrophy(btn.dataset.id));
+    });
+  }
+
+  async function equipTrophy(id){
+    if(!currentUser){
+      showToast('👤 Crée un compte pour pouvoir équiper un trophée sur ton profil.', false);
+      return;
+    }
+    currentEquippedTrophy = id;
+    renderTrophies();
+    try{
+      await supabaseClient.from('profiles').update({ equipped_trophy: id }).eq('id', currentUser.id);
+      showToast('✅ Trophée équipé sur ton profil !', false);
+    }catch(e){ /* pas grave, ça retentera au prochain sync */ }
   }
 
   const trophyBtn = document.getElementById('trophyBtn');
