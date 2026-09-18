@@ -50,19 +50,138 @@
   .subtitle{
     opacity:0.7; font-size:0.82rem; margin-bottom:10px; text-align:center;
   }
+  .rank-row{
+    display:flex; align-items:center; gap:8px;
+    margin-bottom:4px;
+    flex-shrink:0;
+  }
   .rank-badge{
     display:flex; align-items:center; gap:8px;
     background:rgba(255,255,255,0.06);
     border:1px solid rgba(255,255,255,0.15);
     border-radius:100px;
     padding:6px 16px;
-    margin-bottom:14px;
     font-size:0.8rem;
     font-weight:700;
-    flex-shrink:0;
   }
   .rank-badge .rank-icon{ font-size:1.1rem; }
-  .rank-badge .rank-record{ opacity:0.65; font-weight:600; }
+  .rank-badge .rank-elo{ opacity:0.65; font-weight:600; }
+  .record-line{
+    font-size:0.72rem; opacity:0.55; margin-bottom:14px; text-align:center;
+    flex-shrink:0;
+  }
+  .trophy-btn{
+    width:34px; height:34px;
+    border-radius:50%;
+    border:1px solid rgba(255,210,63,0.4);
+    background:rgba(255,210,63,0.1);
+    font-size:1rem;
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition:transform 0.15s ease;
+  }
+  .trophy-btn:active{ transform:scale(0.9); }
+
+  .trophy-overlay{
+    position:fixed; inset:0;
+    background:rgba(0,0,0,0.7);
+    -webkit-backdrop-filter:blur(3px);
+    backdrop-filter:blur(3px);
+    display:none;
+    align-items:center; justify-content:center;
+    z-index:1000;
+    padding:20px;
+  }
+  .trophy-overlay.show{ display:flex; }
+  .trophy-panel{
+    width:100%; max-width:440px;
+    max-height:80vh;
+    background:linear-gradient(160deg,#2a0000,#150000);
+    border:1px solid rgba(255,210,63,0.3);
+    border-radius:20px;
+    padding:18px;
+    display:flex; flex-direction:column;
+    box-shadow:0 20px 60px rgba(0,0,0,0.6);
+  }
+  .trophy-header{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:12px;
+  }
+  .trophy-header h2{ margin:0; font-size:1.1rem; }
+  .trophy-close{
+    width:30px; height:30px; border-radius:50%;
+    background:rgba(255,255,255,0.1); border:none; color:#fff;
+    font-size:0.9rem; cursor:pointer;
+  }
+  .trophy-list{
+    overflow-y:auto;
+    display:flex; flex-direction:column; gap:10px;
+  }
+  .trophy-item{
+    display:flex; align-items:center; gap:12px;
+    background:rgba(255,255,255,0.04);
+    border:1px solid rgba(255,255,255,0.1);
+    border-radius:14px;
+    padding:10px 14px;
+    opacity:0.4;
+  }
+  .trophy-item.unlocked{
+    opacity:1;
+    border-color:rgba(255,210,63,0.4);
+    background:rgba(255,210,63,0.08);
+  }
+  .trophy-item.hard{
+    border-style:dashed;
+  }
+  .trophy-item.hard.unlocked{
+    border-style:solid;
+    border-color:rgba(255,60,60,0.55);
+    background:rgba(255,60,60,0.1);
+    box-shadow:0 0 14px rgba(255,60,60,0.25);
+  }
+  .hard-tag{
+    display:inline-block;
+    font-size:0.58rem;
+    font-weight:900;
+    letter-spacing:0.5px;
+    color:#ff3c3c;
+    border:1px solid rgba(255,60,60,0.5);
+    border-radius:5px;
+    padding:1px 5px;
+    margin-left:4px;
+    vertical-align:middle;
+  }
+  .trophy-icon{ font-size:1.5rem; flex-shrink:0; }
+  .trophy-info{ display:flex; flex-direction:column; }
+  .trophy-name{ font-weight:800; font-size:0.88rem; }
+  .trophy-desc{ font-size:0.72rem; opacity:0.7; }
+
+  /* ---------- Optimisations mobile ---------- */
+  @media (max-width: 480px){
+    .rank-row{ gap:6px; }
+    .rank-badge{
+      padding:5px 12px;
+      font-size:0.72rem;
+      gap:6px;
+    }
+    .rank-badge .rank-icon{ font-size:1rem; }
+    .trophy-btn{ width:32px; height:32px; font-size:0.9rem; }
+    .record-line{ font-size:0.68rem; margin-bottom:10px; }
+    #toastContainer{ width:94vw; }
+    .toast{ font-size:0.78rem; padding:10px 14px; }
+    .trophy-overlay{ padding:12px; }
+    .trophy-panel{ padding:14px; max-height:78vh; }
+    .trophy-header h2{ font-size:1rem; }
+    .trophy-item{ padding:9px 12px; gap:10px; }
+    .trophy-icon{ font-size:1.3rem; }
+    .trophy-name{ font-size:0.82rem; }
+    .trophy-desc{ font-size:0.68rem; }
+  }
+  @media (max-height: 700px) and (max-width: 480px){
+    .rank-row{ margin-bottom:2px; }
+    .record-line{ margin-bottom:8px; }
+    .subtitle{ margin-bottom:6px; }
+  }
 
   #toastContainer{
     position:fixed;
@@ -375,11 +494,15 @@
 
   <h1>🧊 Flocko Mètre</h1>
   <div class="subtitle">Aucune pitié, scanne-toi si t'oses 🔥</div>
-  <div class="rank-badge" id="rankBadge">
-    <span class="rank-icon">🥉</span>
-    <span id="rankName">Flocko de Bronze</span>
-    <span class="rank-record" id="rankRecord">— Record : --</span>
+  <div class="rank-row">
+    <div class="rank-badge" id="rankBadge">
+      <span class="rank-icon">🥉</span>
+      <span id="rankName">Flocko de Bronze</span>
+      <span class="rank-elo" id="rankElo">1000 ELO</span>
+    </div>
+    <button class="trophy-btn" id="trophyBtn" type="button" title="Voir mes trophées">🏆</button>
   </div>
+  <div class="record-line" id="recordLine">Record personnel : --</div>
 
   <div id="toastContainer"></div>
 
@@ -420,6 +543,16 @@
     <span id="visitCount" class="visit-count">👀 chargement...</span>
   </footer>
 
+  <div class="trophy-overlay" id="trophyOverlay">
+    <div class="trophy-panel">
+      <div class="trophy-header">
+        <h2>🏆 Trophées</h2>
+        <button class="trophy-close" id="trophyClose" type="button">✕</button>
+      </div>
+      <div class="trophy-list" id="trophyList"></div>
+    </div>
+  </div>
+
 <script>
   const video = document.getElementById('video');
   const fallbackFace = document.getElementById('fallbackFace');
@@ -441,7 +574,6 @@
   const flipBtn = document.getElementById('flipBtn');
   const rankBadge = document.getElementById('rankBadge');
   const rankNameEl = document.getElementById('rankName');
-  const rankRecordEl = document.getElementById('rankRecord');
   const rankIconEl = rankBadge.querySelector('.rank-icon');
   const toastContainer = document.getElementById('toastContainer');
 
@@ -555,7 +687,7 @@
     "SYSTÈME EN PANIQUE, TROP DE FLOCKO"
   ];
 
-  // ---------- Rangs Flocko (façon jeu compétitif) ----------
+  // ---------- Rangs "résultat" (juste pour l'ambiance du message affiché après un scan) ----------
   const RANKS = [
     { min: 0,   max: 49,  name: 'Flocko de Bronze',       icon: '🥉' },
     { min: 50,  max: 69,  name: "Flocko d'Argent",        icon: '🥈' },
@@ -638,8 +770,55 @@
     setTimeout(() => { toast.remove(); }, 3600);
   }
 
-  // ---------- Record personnel (sauvegardé localement) ----------
+  // ---------- Système ELO (le rang progresse ET régresse selon les scores) ----------
+  // Formule : un score de 50% = neutre (aucun gain). En dessous, on perd des points ;
+  // au-dessus, on en gagne. Les scores >100% donnent un gros bonus fixe (proportionnel à leur rareté).
+  // Résultat : le rang évolue dans le temps avec la régularité du joueur, pas juste son meilleur coup.
+  const ELO_KEY = 'flockoElo';
   const BEST_KEY = 'flockoBestScore';
+  const STATS_KEY = 'flockoStats';
+  const START_ELO = 500;
+
+  const ELO_RANKS = [
+    { min: 0,    name: 'Flocko de Bronze',      icon: '🥉' },
+    { min: 1000, name: "Flocko d'Argent",       icon: '🥈' },
+    { min: 1200, name: "Flocko d'Or",           icon: '🥇' },
+    { min: 1400, name: 'Flocko de Platine',     icon: '💠' },
+    { min: 1600, name: 'Flocko de Diamant',     icon: '💎' },
+    { min: 1800, name: 'Flocko Champion',       icon: '👑' },
+    { min: 2000, name: 'Grand Champion Flocko', icon: '🏆' },
+    { min: 2300, name: 'Flocko Suprême',        icon: '☢️' },
+  ];
+
+  function getEloRank(elo){
+    let current = ELO_RANKS[0];
+    for(const r of ELO_RANKS){
+      if(elo >= r.min) current = r;
+    }
+    return current;
+  }
+
+  function computeEloChange(percent){
+    if(percent > 100){
+      if(percent > 400) return 220;
+      if(percent > 300) return 140;
+      if(percent > 200) return 85;
+      return 45; // 101-200
+    }
+    // 0-100 : symétrique autour de 50, gains/pertes raisonnables (±25 max)
+    const diff = percent - 50;
+    return Math.round(diff * 0.5);
+  }
+
+  function loadElo(){
+    try{
+      const raw = localStorage.getItem(ELO_KEY);
+      return raw ? parseInt(raw, 10) : START_ELO;
+    }catch(e){ return START_ELO; }
+  }
+  function saveElo(elo){
+    try{ localStorage.setItem(ELO_KEY, String(elo)); }catch(e){}
+  }
 
   function loadBest(){
     try{
@@ -649,34 +828,196 @@
       return { percent: 0 };
     }
   }
-
   function saveBest(percent){
     try{
       localStorage.setItem(BEST_KEY, JSON.stringify({ percent }));
-    }catch(e){ /* localStorage indisponible, tant pis */ }
+    }catch(e){}
   }
 
-  function refreshRankBadge(percent){
-    const rank = getRank(percent);
+  function defaultStats(){
+    return {
+      totalScans: 0,
+      streakOver100: 0,
+      bestStreakOver100: 0,
+      streakFlocko: 0,
+      bestStreakFlocko: 0,
+      recordsBeaten: 0,
+      unlocked: []
+    };
+  }
+  function loadStats(){
+    try{
+      const raw = localStorage.getItem(STATS_KEY);
+      return raw ? Object.assign(defaultStats(), JSON.parse(raw)) : defaultStats();
+    }catch(e){ return defaultStats(); }
+  }
+  function saveStats(stats){
+    try{ localStorage.setItem(STATS_KEY, JSON.stringify(stats)); }catch(e){}
+  }
+
+  function refreshBadge(){
+    const elo = loadElo();
+    const rank = getEloRank(elo);
+    const best = loadBest();
     rankIconEl.textContent = rank.icon;
     rankNameEl.textContent = rank.name;
-    rankRecordEl.textContent = '— Record : ' + percent + '%';
+    document.getElementById('rankElo').textContent = elo + ' ELO';
+    document.getElementById('recordLine').textContent = 'Record personnel : ' + (best.percent > 0 ? best.percent + '%' : '--');
   }
 
-  function handleNewResult(percent){
-    const best = loadBest();
-    const newRank = getRank(percent);
-    const oldRank = getRank(best.percent);
+  // ---------- Trophées ----------
+  const ACHIEVEMENTS = [
+    {
+      id: 'first_flocko', icon: '🔥', name: 'Premier Flocko', difficulty: 'normal',
+      desc: "Obtenir un score de Flocko (≥50%) au moins une fois.",
+      check: (s, ctx) => ctx.percent >= 50
+    },
+    {
+      id: 'platine', icon: '💠', name: 'Flocko de Platine', difficulty: 'normal',
+      desc: "Atteindre 90% ou plus sur un scan.",
+      check: (s, ctx) => ctx.percent >= 90
+    },
+    {
+      id: 'sortie_bronze', icon: '🥈', name: 'Sortie du Bronze', difficulty: 'normal',
+      desc: "Atteindre 1000 ELO pour la première fois et quitter le Bronze.",
+      check: (s, ctx) => ctx.elo >= 1000
+    },
+    {
+      id: 'increvable', icon: '🏋️', name: 'Increvable', difficulty: 'normal',
+      desc: "Faire 20 scans au total.",
+      check: (s) => s.totalScans >= 20
+    },
+    {
+      id: 'diamant_rank', icon: '💎', name: 'Rang Diamant', difficulty: 'normal',
+      desc: "Atteindre le rang Flocko de Diamant (1600 ELO).",
+      check: (s, ctx) => ctx.elo >= 1600
+    },
+    {
+      id: 'record_x5', icon: '📈', name: 'En progression', difficulty: 'normal',
+      desc: "Battre son record personnel 5 fois.",
+      check: (s) => s.recordsBeaten >= 5
+    },
+    {
+      id: 'triple_surcharge', icon: '☢️', name: 'Triple Surcharge', difficulty: 'hard',
+      desc: "Obtenir 3 scores au-dessus de 100% d'affilée.",
+      check: (s) => s.bestStreakOver100 >= 3
+    },
+    {
+      id: 'streak_flocko_10', icon: '🧊', name: 'Sans Faille', difficulty: 'hard',
+      desc: "Obtenir 10 scores de Flocko (≥50%) d'affilée, sans faux pas.",
+      check: (s) => s.bestStreakFlocko >= 10
+    },
+    {
+      id: 'grand_champion_rank', icon: '🏆', name: 'Grand Champion', difficulty: 'hard',
+      desc: "Atteindre le rang Grand Champion Flocko (2000 ELO).",
+      check: (s, ctx) => ctx.elo >= 2000
+    },
+    {
+      id: 'supreme_rank_elo', icon: '👹', name: 'Suprématie Totale', difficulty: 'hard',
+      desc: "Atteindre le rang Flocko Suprême (2300 ELO) — quasi personne n'y arrive.",
+      check: (s, ctx) => ctx.elo >= 2300
+    },
+    {
+      id: 'marathon_100', icon: '🗿', name: 'Marathonien du Flocko', difficulty: 'hard',
+      desc: "Faire 100 scans au total. La patience a une limite, apparemment pas la tienne.",
+      check: (s) => s.totalScans >= 100
+    },
+    {
+      id: 'supreme', icon: '☢️', name: 'Légende Suprême', difficulty: 'hard',
+      desc: "Obtenir un score dans la zone Flocko Suprême (401-500%).",
+      check: (s, ctx) => ctx.percent > 400
+    },
+    {
+      id: 'jackpot_500', icon: '🃏', name: 'Jackpot Absolu', difficulty: 'hard',
+      desc: "Obtenir EXACTEMENT 500%, le score maximal. Probabilité quasi nulle.",
+      check: (s, ctx) => ctx.percent >= 500
+    },
+  ];
 
-    if(percent > best.percent){
-      saveBest(percent);
-      refreshRankBadge(percent);
-      if(newRank.name !== oldRank.name && best.percent > 0){
-        showToast('🏆 Nouveau rang débloqué : ' + newRank.icon + ' ' + newRank.name + ' !', true);
-      }else{
-        showToast('✨ Nouveau record personnel : ' + percent + '% !', false);
+  function checkAchievements(stats, ctx){
+    const newlyUnlocked = [];
+    for(const ach of ACHIEVEMENTS){
+      if(!stats.unlocked.includes(ach.id) && ach.check(stats, ctx)){
+        stats.unlocked.push(ach.id);
+        newlyUnlocked.push(ach);
       }
     }
+    return newlyUnlocked;
+  }
+
+  function renderTrophies(){
+    const stats = loadStats();
+    const list = document.getElementById('trophyList');
+    list.innerHTML = '';
+    ACHIEVEMENTS.forEach(ach => {
+      const unlocked = stats.unlocked.includes(ach.id);
+      const isHard = ach.difficulty === 'hard';
+      const item = document.createElement('div');
+      item.className = 'trophy-item' + (unlocked ? ' unlocked' : '') + (isHard ? ' hard' : '');
+      item.innerHTML =
+        '<div class="trophy-icon">' + (unlocked ? ach.icon : '🔒') + '</div>' +
+        '<div class="trophy-info">' +
+          '<div class="trophy-name">' + ach.name + (isHard ? ' <span class="hard-tag">DUR</span>' : '') + '</div>' +
+          '<div class="trophy-desc">' + ach.desc + '</div>' +
+        '</div>';
+      list.appendChild(item);
+    });
+  }
+
+  const trophyBtn = document.getElementById('trophyBtn');
+  const trophyOverlay = document.getElementById('trophyOverlay');
+  const trophyClose = document.getElementById('trophyClose');
+  trophyBtn.addEventListener('click', () => { renderTrophies(); trophyOverlay.classList.add('show'); });
+  trophyClose.addEventListener('click', () => trophyOverlay.classList.remove('show'));
+  trophyOverlay.addEventListener('click', (e) => { if(e.target === trophyOverlay) trophyOverlay.classList.remove('show'); });
+
+  function handleNewResult(percent){
+    const isFlocko = percent >= 50;
+    const isOverBar = percent > 100;
+
+    // --- ELO ---
+    const oldElo = loadElo();
+    const oldRank = getEloRank(oldElo);
+    const change = computeEloChange(percent);
+    const newElo = Math.max(0, oldElo + change);
+    saveElo(newElo);
+    const newRank = getEloRank(newElo);
+
+    // --- Record ---
+    const best = loadBest();
+    let beatRecord = false;
+    if(percent > best.percent){
+      saveBest(percent);
+      beatRecord = true;
+    }
+
+    // --- Stats / streaks ---
+    const stats = loadStats();
+    stats.totalScans += 1;
+    stats.streakOver100 = isOverBar ? stats.streakOver100 + 1 : 0;
+    stats.bestStreakOver100 = Math.max(stats.bestStreakOver100, stats.streakOver100);
+    stats.streakFlocko = isFlocko ? stats.streakFlocko + 1 : 0;
+    stats.bestStreakFlocko = Math.max(stats.bestStreakFlocko, stats.streakFlocko);
+    if(beatRecord) stats.recordsBeaten += 1;
+
+    const newlyUnlocked = checkAchievements(stats, { percent, elo: newElo });
+    saveStats(stats);
+
+    refreshBadge();
+
+    // --- Notifications ---
+    if(newRank.name !== oldRank.name){
+      const wentUp = newElo > oldElo;
+      showToast((wentUp ? '🏆 Rang supérieur : ' : '📉 Rang inférieur : ') + newRank.icon + ' ' + newRank.name, wentUp);
+    }else if(change !== 0){
+      showToast((change > 0 ? '+' : '') + change + ' ELO', false);
+    }
+    if(beatRecord){
+      showToast('✨ Nouveau record personnel : ' + percent + '% !', false);
+    }
+    newlyUnlocked.forEach(ach => {
+      showToast('🏆 Trophée débloqué : ' + ach.icon + ' ' + ach.name, true);
+    });
   }
 
   // Petit rappel quotidien : encourage à revenir tenter sa chance chaque jour
@@ -694,8 +1035,8 @@
     }
   })();
 
-  // Affiche le rang/record sauvegardé dès le chargement de la page
-  refreshRankBadge(loadBest().percent);
+  // Affiche le rang/ELO/record sauvegardés dès le chargement de la page
+  refreshBadge();
 
 
   let lightsInterval = null;
