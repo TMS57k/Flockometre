@@ -930,10 +930,10 @@
   // Chaque palier a de moins en moins de chance d'être atteint.
   // Ex : une fois dans la zone 101-200, il y a 1/1000 de "percer" vers 201-300, etc.
   const ESCALATION_TIERS = [
-    { chance: 0.14,    min: 101, max: 200 },
-    { chance: 1/800,   min: 201, max: 300 },
-    { chance: 1/4000,  min: 301, max: 400 },
-    { chance: 1/17000, min: 401, max: 500 },
+    { chance: 0.16,    min: 101, max: 200 },
+    { chance: 1/600,   min: 201, max: 300 },
+    { chance: 1/3000,  min: 301, max: 400 },
+    { chance: 1/12000, min: 401, max: 500 },
   ];
 
   function rollFlockoResult(){
@@ -977,14 +977,14 @@
   const START_ELO = 800;
 
   const ELO_RANKS = [
-    { min: 0,    name: 'Flocko de Bronze',      icon: '🥉' },
-    { min: 1000, name: "Flocko d'Argent",       icon: '🥈' },
-    { min: 1300, name: "Flocko d'Or",           icon: '🥇' },
-    { min: 1700, name: 'Flocko de Platine',     icon: '💠' },
-    { min: 2200, name: 'Flocko de Diamant',     icon: '💎' },
-    { min: 2800, name: 'Flocko Champion',       icon: '👑' },
-    { min: 3500, name: 'Grand Champion Flocko', icon: '🏆' },
-    { min: 4500, name: 'Flocko Suprême',        icon: '☢️' },
+    { min: 0,     name: 'Flocko de Bronze',      icon: '🥉' },
+    { min: 1500,  name: "Flocko d'Argent",       icon: '🥈' },
+    { min: 2500,  name: "Flocko d'Or",           icon: '🥇' },
+    { min: 4000,  name: 'Flocko de Platine',     icon: '💠' },
+    { min: 6000,  name: 'Flocko de Diamant',     icon: '💎' },
+    { min: 8500,  name: 'Flocko Champion',       icon: '👑' },
+    { min: 11000, name: 'Grand Champion Flocko', icon: '🏆' },
+    { min: 13000, name: 'Flocko Suprême',        icon: '☢️' },
   ];
 
   function getEloRank(elo){
@@ -997,10 +997,15 @@
 
   function computeEloChange(percent){
     if(percent > 100){
-      if(percent > 400) return 260;
-      if(percent > 300) return 170;
-      if(percent > 200) return 100;
-      return 55; // 101-200
+      // Le gain grimpe progressivement à l'intérieur de chaque palier :
+      // 150% et 199% ne donnent plus le même bonus, par exemple.
+      let tierMin, tierMax, base, range;
+      if(percent > 400){       tierMin = 401; tierMax = 500; base = 240; range = 80; }
+      else if(percent > 300){  tierMin = 301; tierMax = 400; base = 160; range = 60; }
+      else if(percent > 200){  tierMin = 201; tierMax = 300; base = 90;  range = 50; }
+      else{                    tierMin = 101; tierMax = 200; base = 40;  range = 30; }
+      const t = (percent - tierMin) / (tierMax - tierMin); // 0 à 1 dans le palier
+      return Math.round(base + t * range);
     }
     if(percent >= 50){
       // gain généreux : jusqu'à +30 à 100%
@@ -1094,8 +1099,8 @@
     },
     {
       id: 'diamant_rank', icon: '💎', name: 'Rang Diamant', difficulty: 'normal',
-      desc: "Atteindre le rang Flocko de Diamant (2200 ELO).",
-      check: (s, ctx) => ctx.elo >= 2200
+      desc: "Atteindre le rang Flocko de Diamant (6000 ELO).",
+      check: (s, ctx) => ctx.elo >= 6000
     },
     {
       id: 'record_x5', icon: '📈', name: 'En progression', difficulty: 'normal',
@@ -1114,13 +1119,13 @@
     },
     {
       id: 'grand_champion_rank', icon: '🏆', name: 'Grand Champion', difficulty: 'hard',
-      desc: "Atteindre le rang Grand Champion Flocko (3500 ELO).",
-      check: (s, ctx) => ctx.elo >= 3500
+      desc: "Atteindre le rang Grand Champion Flocko (11000 ELO).",
+      check: (s, ctx) => ctx.elo >= 11000
     },
     {
       id: 'supreme_rank_elo', icon: '👹', name: 'Suprématie Totale', difficulty: 'hard',
-      desc: "Atteindre le rang Flocko Suprême (4500 ELO) — quasi personne n'y arrive.",
-      check: (s, ctx) => ctx.elo >= 4500
+      desc: "Atteindre le rang Flocko Suprême (13000 ELO) — quasi personne n'y arrive.",
+      check: (s, ctx) => ctx.elo >= 13000
     },
     {
       id: 'marathon_100', icon: '🗿', name: 'Marathonien du Flocko', difficulty: 'hard',
