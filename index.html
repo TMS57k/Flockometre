@@ -220,9 +220,46 @@
     border-radius:12px;
     padding:9px 14px;
   }
-  .lb-rank{ font-weight:900; width:24px; text-align:center; opacity:0.7; }
-  .lb-pseudo{ flex:1; font-weight:700; font-size:0.86rem; }
-  .lb-elo{ font-weight:800; font-size:0.86rem; color:#ff6a00; }
+  .lb-rank{ font-weight:900; width:24px; text-align:center; opacity:0.7; flex-shrink:0; }
+  .lb-main{ flex:1; min-width:0; }
+  .lb-top-line{ display:flex; align-items:center; gap:6px; }
+  .lb-pseudo{ font-weight:700; font-size:0.86rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lb-trophy-icon{ font-size:0.9rem; flex-shrink:0; }
+  .lb-dot{
+    width:7px; height:7px; border-radius:50%;
+    background:rgba(255,255,255,0.25);
+    flex-shrink:0;
+  }
+  .lb-dot.online{
+    background:#22e07a;
+    box-shadow:0 0 6px rgba(34,224,122,0.7);
+  }
+  .lb-sub-line{
+    font-size:0.68rem; opacity:0.6; margin-top:2px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .lb-elo{ font-weight:800; font-size:0.86rem; color:#ff6a00; flex-shrink:0; }
+
+  .equip-btn{
+    flex-shrink:0;
+    background:rgba(255,255,255,0.08);
+    border:1px solid rgba(255,255,255,0.2);
+    color:#fff;
+    font-size:0.68rem;
+    font-weight:700;
+    padding:6px 10px;
+    border-radius:100px;
+    cursor:pointer;
+  }
+  .equip-btn.equipped-btn{
+    background:rgba(34,224,122,0.15);
+    border-color:rgba(34,224,122,0.5);
+    color:#22e07a;
+    cursor:default;
+  }
+  .trophy-item.equipped{
+    border-color:rgba(34,224,122,0.5);
+  }
 
   /* ---------- Optimisations mobile ---------- */
   @media (max-width: 480px){
@@ -689,10 +726,52 @@
   const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
   let currentUser = null;
   let currentPseudo = null;
+  let currentEquippedTrophy = null;
+  let localPlaySeconds = 0;
+  let heartbeatInterval = null;
 
   function pseudoToEmail(pseudo){
     const clean = pseudo.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
     return clean + '@flocko.local';
+  }
+
+  // Toutes les 30s pendant que le joueur est connecté : met à jour son temps de jeu
+  // et son "dernier vu", ce qui permet aussi de savoir s'il est actuellement en ligne.
+  function startHeartbeat(){
+    if(heartbeatInterval) return;
+    heartbeatInterval = setInterval(async () => {
+      if(!currentUser) return;
+      localPlaySeconds += 30;
+      try{
+        await supabaseClient.from('profiles').update({
+          play_seconds: localPlaySeconds,
+          last_seen: new Date().toISOString()
+        }).eq('id', currentUser.id);
+      }catch(e){}
+    }, 30000);
+    // premier signal immédiat pour ne pas attendre 30s avant d'apparaître "en ligne"
+    if(currentUser){
+      supabaseClient.from('profiles').update({ last_seen: new Date().toISOString() }).eq('id', currentUser.id).then(()=>{}).catch(()=>{});
+    }
+  }
+  function stopHeartbeat(){
+    if(heartbeatInterval){ clearInterval(heartbeatInterval); heartbeatInterval = null; }
+  }
+
+  function formatPlayTime(seconds){
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if(h > 0) return h + 'h' + String(m).padStart(2, '0');
+    return m + ' min';
+  }
+
+  function getLastSeenInfo(dateStr){
+    if(!dateStr) return { online: false, text: 'jamais connecté' };
+    const diffSec = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+    if(diffSec < 90) return { online: true, text: 'En ligne' };
+    if(diffSec < 3600) return { online: false, text: 'il y a ' + Math.floor(diffSec / 60) + ' min' };
+    if(diffSec < 86400) return { online: false, text: 'il y a ' + Math.floor(diffSec / 3600) + ' h' };
+    return { online: false, text: 'il y a ' + Math.floor(diffSec / 86400) + ' j' };
   }
 
   let scanning = false;
@@ -1191,16 +1270,20 @@
         if(error) throw error;
         currentUser = data.user;
         currentPseudo = pseudo;
+        localPlaySeconds = 0;
+        currentEquippedTrophy = null;
 
         // on migre les données locales déjà accumulées vers le compte tout neuf
         const elo = loadElo();
         const best = loadBest().percent;
         const stats = loadStats();
         const { error: insertError } = await supabaseClient.from('profiles').insert({
-          id: currentUser.id, pseudo, elo, best_score: best, data: stats
+          id: currentUser.id, pseudo, elo, best_score: best, data: stats,
+          play_seconds: 0, last_seen: new Date().toISOString()
         });
         if(insertError) throw insertError;
 
+        startHeartbeat();
         setAccountMsg('Compte créé, bienvenue ' + pseudo + ' !', 'success');
       }else{
         const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -1212,11 +1295,14 @@
         if(profileError) throw profileError;
 
         currentPseudo = profile.pseudo;
+        localPlaySeconds = profile.play_seconds || 0;
+        currentEquippedTrophy = profile.equipped_trophy || null;
         // on récupère les données du compte (elles remplacent celles de cet appareil)
         saveElo(profile.elo);
         saveBest(profile.best_score);
         saveStats(Object.assign(defaultStats(), profile.data || {}));
 
+        startHeartbeat();
         setAccountMsg('Connecté !', 'success');
       }
 
@@ -1233,8 +1319,11 @@
 
   accountLogout.addEventListener('click', async () => {
     await supabaseClient.auth.signOut();
+    stopHeartbeat();
     currentUser = null;
     currentPseudo = null;
+    currentEquippedTrophy = null;
+    localPlaySeconds = 0;
     updateAccountUI();
     accountOverlay.classList.remove('show');
     showToast('👋 Déconnecté. Tes scores restent sauvegardés sur ce compte.', false);
@@ -1263,10 +1352,13 @@
           .from('profiles').select('*').eq('id', currentUser.id).single();
         if(profile){
           currentPseudo = profile.pseudo;
+          localPlaySeconds = profile.play_seconds || 0;
+          currentEquippedTrophy = profile.equipped_trophy || null;
           saveElo(profile.elo);
           saveBest(profile.best_score);
           saveStats(Object.assign(defaultStats(), profile.data || {}));
           refreshBadge();
+          startHeartbeat();
         }
       }
     }catch(e){ /* pas de session active, tant pis */ }
@@ -1284,7 +1376,7 @@
     try{
       const { data, error } = await supabaseClient
         .from('profiles')
-        .select('pseudo, elo')
+        .select('pseudo, elo, best_score, play_seconds, last_seen, equipped_trophy')
         .order('elo', { ascending: false })
         .limit(50);
       if(error) throw error;
@@ -1299,9 +1391,24 @@
         const item = document.createElement('div');
         item.className = 'lb-item';
         const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+
+        const seenInfo = getLastSeenInfo(row.last_seen);
+        const trophyDef = row.equipped_trophy ? ACHIEVEMENTS.find(a => a.id === row.equipped_trophy) : null;
+        const trophyHtml = trophyDef ? '<span class="lb-trophy-icon" title="' + trophyDef.name + '">' + trophyDef.icon + '</span>' : '';
+        const playTimeText = formatPlayTime(row.play_seconds || 0);
+
         item.innerHTML =
           '<div class="lb-rank">' + medal + '</div>' +
-          '<div class="lb-pseudo">' + row.pseudo + '</div>' +
+          '<div class="lb-main">' +
+            '<div class="lb-top-line">' +
+              '<span class="lb-pseudo">' + row.pseudo + '</span>' +
+              trophyHtml +
+              '<span class="lb-dot ' + (seenInfo.online ? 'online' : '') + '"></span>' +
+            '</div>' +
+            '<div class="lb-sub-line">' +
+              '🏆 ' + (row.best_score || 0) + '% · ⏱️ ' + playTimeText + ' · ' + seenInfo.text +
+            '</div>' +
+          '</div>' +
           '<div class="lb-elo">' + row.elo + ' ELO</div>';
         leaderboardList.appendChild(item);
       });
