@@ -283,6 +283,41 @@
   .battle-result-title{ text-align:center; font-size:1rem; font-weight:900; margin-bottom:4px; }
   .battle-result-sub{ text-align:center; font-size:0.8rem; opacity:0.7; margin-bottom:6px; }
 
+  .battle-start-fx{
+    position:fixed; inset:0; z-index:2000;
+    background:radial-gradient(circle, rgba(255,0,30,0.35), rgba(0,0,0,0.85));
+    display:flex; align-items:center; justify-content:center;
+    opacity:0;
+    animation:bsfxIn 0.35s ease forwards;
+    pointer-events:none;
+  }
+  .battle-start-fx.fade-out{ animation:bsfxOut 0.5s ease forwards; }
+  @keyframes bsfxIn{ from{ opacity:0; } to{ opacity:1; } }
+  @keyframes bsfxOut{ from{ opacity:1; } to{ opacity:0; } }
+  .battle-start-inner{ text-align:center; }
+  .bsfx-name{
+    font-size:clamp(1.3rem, 7vw, 2rem);
+    font-weight:900;
+    color:#fff;
+    text-shadow:0 0 20px rgba(255,0,30,0.8);
+    animation:bsfxPop 0.5s ease;
+  }
+  .bsfx-vs{
+    font-size:1.4rem; font-weight:900; margin:10px 0;
+    color:#ffd23f;
+    text-shadow:0 0 16px rgba(255,210,63,0.8);
+    animation:bsfxPulse 0.8s ease-in-out infinite;
+  }
+  @keyframes bsfxPop{
+    0%{ transform:scale(0.5); opacity:0; }
+    60%{ transform:scale(1.15); opacity:1; }
+    100%{ transform:scale(1); opacity:1; }
+  }
+  @keyframes bsfxPulse{
+    0%,100%{ transform:scale(1); }
+    50%{ transform:scale(1.15); }
+  }
+
   .equip-btn{
     flex-shrink:0;
     background:rgba(255,255,255,0.08);
@@ -1531,9 +1566,18 @@
   leaderboardOverlay.addEventListener('click', (e) => { if(e.target === leaderboardOverlay) leaderboardOverlay.classList.remove('show'); });
 
   // ---------- Mode Battle (1v1, tours alternés) ----------
-  const BATTLE_WINNER_ELO = 150;
-  const BATTLE_LOSER_ELO = 80;
   const BATTLE_DRAW_ELO = 100;
+
+  // Plus l'écart d'ELO favorise le gagnant, moins il gagne (et moins le perdant perd) :
+  // une victoire attendue rapporte peu, une victoire surprise rapporte gros.
+  // Le perdant perd TOUJOURS de l'ELO, jamais 0.
+  function computeBattleEloDeltas(winnerElo, loserElo){
+    const expectedWinnerWin = 1 / (1 + Math.pow(10, (loserElo - winnerElo) / 400));
+    const factor = 2 * (1 - expectedWinnerWin); // 0 (victoire "logique") à 2 (grosse surprise), 1 = match équilibré
+    const deltaWinner = Math.max(1, Math.round(200 * factor));
+    const deltaLoser = -Math.max(1, Math.round(100 * factor));
+    return { deltaWinner, deltaLoser };
+  }
 
   const battleBtn = document.getElementById('battleBtn');
   const battleOverlay = document.getElementById('battleOverlay');
@@ -1620,9 +1664,22 @@
     if(alreadyApplied) return;
 
     let delta;
-    if(battle.winner === 'draw') delta = BATTLE_DRAW_ELO;
-    else if(battle.winner === role) delta = BATTLE_WINNER_ELO;
-    else delta = BATTLE_LOSER_ELO;
+    if(battle.winner === 'draw'){
+      delta = BATTLE_DRAW_ELO;
+    }else{
+      const winnerId = battle.winner === 'player1' ? battle.player1_id : battle.player2_id;
+      const loserId = battle.winner === 'player1' ? battle.player2_id : battle.player1_id;
+      let winnerElo = 800, loserElo = 800;
+      try{
+        const { data: rows } = await supabaseClient.from('profiles').select('id, elo').in('id', [winnerId, loserId]);
+        if(rows){
+          const wRow = rows.find(r => r.id === winnerId); if(wRow) winnerElo = wRow.elo;
+          const lRow = rows.find(r => r.id === loserId); if(lRow) loserElo = lRow.elo;
+        }
+      }catch(e){}
+      const { deltaWinner, deltaLoser } = computeBattleEloDeltas(winnerElo, loserElo);
+      delta = (battle.winner === role) ? deltaWinner : deltaLoser;
+    }
 
     const oldElo = loadElo();
     const newElo = Math.max(0, oldElo + delta);
@@ -1638,7 +1695,7 @@
     }else if(battle.winner === role){
       showToast('🏆 Tu as gagné la Battle ! +' + delta + ' ELO', true);
     }else{
-      showToast('💪 Battle perdue, mais +' + delta + ' ELO quand même !', false);
+      showToast('💪 Battle perdue... ' + delta + ' ELO', false);
     }
   }
 
@@ -1710,6 +1767,24 @@
     }).eq('id', battleId);
   }
 
+  let prevBattleSnapshot = null; // pour détecter les changements d'état (début de partie, etc.)
+
+  // Petite animation plein écran au moment où la battle démarre (défi accepté)
+  function showBattleStartAnimation(myName, opponentName){
+    const fx = document.createElement('div');
+    fx.className = 'battle-start-fx';
+    fx.innerHTML =
+      '<div class="battle-start-inner">' +
+        '<div class="bsfx-name">' + escapeHtml(myName) + '</div>' +
+        '<div class="bsfx-vs">⚔️ VS ⚔️</div>' +
+        '<div class="bsfx-name">' + escapeHtml(opponentName) + '</div>' +
+      '</div>';
+    document.body.appendChild(fx);
+    setTimeout(() => { fx.classList.add('fade-out'); }, 1600);
+    setTimeout(() => { fx.remove(); }, 2100);
+  }
+
+
   function updateBattleBanner(){
     if(!currentUser){ battleBanner.classList.remove('show', 'pulse'); return; }
     fetchMyActiveBattle().then(battle => {
@@ -1717,10 +1792,21 @@
         battleBanner.classList.remove('show', 'pulse');
         battleBtn.classList.remove('attention');
         myTurnBattleId = null;
+        prevBattleSnapshot = null;
         return;
       }
       const role = myRoleIn(battle);
       const opponentPseudo = role === 'player1' ? battle.player2_pseudo : battle.player1_pseudo;
+
+      // Détecte la transition "défi accepté" → mini-animation de début de partie
+      const justBecameActive = prevBattleSnapshot &&
+        prevBattleSnapshot.id === battle.id &&
+        prevBattleSnapshot.status === 'pending' &&
+        battle.status === 'active';
+      if(justBecameActive){
+        showBattleStartAnimation(currentPseudo, opponentPseudo);
+      }
+      prevBattleSnapshot = { id: battle.id, status: battle.status, turn: battle.turn };
 
       if(battle.status === 'pending'){
         if(role === 'player2'){
@@ -1741,6 +1827,12 @@
           battleBtn.classList.add('attention');
           myTurnBattleId = battle.id;
           myTurnBattleRole = role;
+          // si le modal était ouvert (ex: on vérifiait le statut), on le ferme direct
+          // et on amène la personne au scanner, plus besoin de "revenir en arrière"
+          if(battleOverlay.classList.contains('show')){
+            battleOverlay.classList.remove('show');
+            scannerWrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
         }else{
           battleBanner.textContent = '⏳ En attente que ' + opponentPseudo + ' scanne son tour...';
           battleBanner.classList.add('show');
@@ -1760,13 +1852,18 @@
           battleBtn.classList.remove('attention');
         }
       }
+
+      // Si le modal Battle est ouvert, on le garde synchronisé en direct
+      if(battleOverlay.classList.contains('show')){
+        renderBattleModal();
+      }
     }).catch(()=>{});
   }
 
   function startBattlePolling(){
     if(battlePollInterval) return;
     updateBattleBanner();
-    battlePollInterval = setInterval(updateBattleBanner, 8000);
+    battlePollInterval = setInterval(updateBattleBanner, 5000);
   }
   function stopBattlePolling(){
     if(battlePollInterval){ clearInterval(battlePollInterval); battlePollInterval = null; }
