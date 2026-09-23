@@ -239,6 +239,49 @@
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   .lb-elo{ font-weight:800; font-size:0.86rem; color:#ff6a00; flex-shrink:0; }
+  .lb-status{
+    font-size:0.7rem; opacity:0.55; font-style:italic; margin-top:2px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+
+  /* ---------- Mode Battle ---------- */
+  .battle-banner{
+    display:none;
+    width:100%; max-width:440px;
+    background:linear-gradient(90deg, rgba(255,0,30,0.18), rgba(255,106,0,0.18));
+    border:1px solid rgba(255,106,0,0.4);
+    border-radius:14px;
+    padding:10px 14px;
+    margin-bottom:12px;
+    text-align:center;
+    font-size:0.8rem;
+    font-weight:700;
+    flex-shrink:0;
+  }
+  .battle-banner.show{ display:block; }
+  .battle-banner.pulse{ animation:accountPulse 1.6s ease-in-out infinite; }
+
+  .battle-row{ display:flex; gap:8px; margin-top:10px; }
+  .battle-row .btn{ margin-top:0; padding:12px; font-size:0.85rem; }
+  .btn-secondary{ background:linear-gradient(90deg,#555,#333) !important; }
+  .btn-decline{ background:linear-gradient(90deg,#661111,#330808) !important; }
+
+  .battle-vs{
+    display:flex; align-items:center; justify-content:center; gap:14px;
+    margin:16px 0;
+  }
+  .battle-side{ text-align:center; flex:1; }
+  .battle-side img{
+    width:100%; max-width:130px; aspect-ratio:1/1; object-fit:cover;
+    border-radius:14px; border:2px solid rgba(255,255,255,0.15);
+  }
+  .battle-side .bside-pseudo{ font-size:0.8rem; font-weight:700; margin-top:6px; }
+  .battle-side .bside-percent{ font-size:1.3rem; font-weight:900; }
+  .battle-side.winner img{ border-color:#ffd23f; box-shadow:0 0 16px rgba(255,210,63,0.5); }
+  .battle-side.winner .bside-percent{ color:#ffd23f; }
+  .battle-vs-label{ font-size:1.1rem; font-weight:900; opacity:0.5; }
+  .battle-result-title{ text-align:center; font-size:1rem; font-weight:900; margin-bottom:4px; }
+  .battle-result-sub{ text-align:center; font-size:0.8rem; opacity:0.7; margin-bottom:6px; }
 
   .equip-btn{
     flex-shrink:0;
@@ -607,9 +650,11 @@
     </div>
     <button class="trophy-btn" id="leaderboardBtn" type="button" title="Classement mondial">🌍</button>
     <button class="trophy-btn" id="trophyBtn" type="button" title="Voir mes trophées">🏆</button>
+    <button class="trophy-btn" id="battleBtn" type="button" title="Mode Battle">⚔️</button>
     <button class="trophy-btn" id="accountBtn" type="button" title="Mon compte">👤</button>
   </div>
   <div class="record-line" id="recordLine">Record personnel : --</div>
+  <div class="battle-banner" id="battleBanner"></div>
 
   <div id="toastContainer"></div>
 
@@ -691,8 +736,21 @@
       <div id="accountLoggedIn" style="display:none;">
         <p class="account-welcome">Connecté en tant que <strong id="accountPseudoDisplay"></strong></p>
         <p class="account-hint">Ton ELO et tes trophées sont maintenant synchronisés et visibles dans le classement mondial.</p>
-        <button class="btn account-submit" id="accountLogout" type="button">Se déconnecter</button>
+        <input class="account-input" id="statusMsgInput" type="text" placeholder="Ton statut (visible sur le classement)" maxlength="60">
+        <button class="btn account-submit" id="statusMsgSave" type="button">Enregistrer le statut</button>
+        <div class="account-msg" id="statusMsgFeedback"></div>
+        <button class="btn account-submit" id="accountLogout" type="button" style="margin-top:14px; background:linear-gradient(90deg,#555,#333);">Se déconnecter</button>
       </div>
+    </div>
+  </div>
+
+  <div class="trophy-overlay" id="battleOverlay">
+    <div class="trophy-panel">
+      <div class="trophy-header">
+        <h2>⚔️ Mode Battle</h2>
+        <button class="trophy-close" id="battleClose" type="button">✕</button>
+      </div>
+      <div id="battleContent"></div>
     </div>
   </div>
 
@@ -729,6 +787,11 @@
   let currentEquippedTrophy = null;
   let localPlaySeconds = 0;
   let heartbeatInterval = null;
+  let currentStatusMsg = '';
+  let battlePollInterval = null;
+  let myTurnBattleId = null;   // battle où c'est mon tour de scanner (utilisé par le bouton scan principal)
+  let myTurnBattleRole = null; // 'player1' ou 'player2'
+  let lastSeenBattleId = null; // pour ne pas réafficher le même résultat en boucle
 
   function pseudoToEmail(pseudo){
     const clean = pseudo.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
@@ -1277,6 +1340,7 @@
         currentPseudo = pseudo;
         localPlaySeconds = 0;
         currentEquippedTrophy = null;
+        currentStatusMsg = '';
 
         // on migre les données locales déjà accumulées vers le compte tout neuf
         const elo = loadElo();
@@ -1289,6 +1353,7 @@
         if(insertError) throw insertError;
 
         startHeartbeat();
+        startBattlePolling();
         setAccountMsg('Compte créé, bienvenue ' + pseudo + ' !', 'success');
       }else{
         const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -1302,17 +1367,20 @@
         currentPseudo = profile.pseudo;
         localPlaySeconds = profile.play_seconds || 0;
         currentEquippedTrophy = profile.equipped_trophy || null;
+        currentStatusMsg = profile.status_msg || '';
         // on récupère les données du compte (elles remplacent celles de cet appareil)
         saveElo(profile.elo);
         saveBest(profile.best_score);
         saveStats(Object.assign(defaultStats(), profile.data || {}));
 
         startHeartbeat();
+        startBattlePolling();
         setAccountMsg('Connecté !', 'success');
       }
 
       refreshBadge();
       updateAccountUI();
+      statusMsgInput.value = currentStatusMsg;
       setTimeout(() => { accountOverlay.classList.remove('show'); }, 900);
     }catch(err){
       setAccountMsg(err.message === 'Invalid login credentials'
@@ -1325,13 +1393,38 @@
   accountLogout.addEventListener('click', async () => {
     await supabaseClient.auth.signOut();
     stopHeartbeat();
+    stopBattlePolling();
     currentUser = null;
     currentPseudo = null;
     currentEquippedTrophy = null;
     localPlaySeconds = 0;
+    currentStatusMsg = '';
+    myTurnBattleId = null;
     updateAccountUI();
+    updateBattleBanner();
     accountOverlay.classList.remove('show');
     showToast('👋 Déconnecté. Tes scores restent sauvegardés sur ce compte.', false);
+  });
+
+  // Enregistrement du statut personnalisé
+  const statusMsgInput = document.getElementById('statusMsgInput');
+  const statusMsgSave = document.getElementById('statusMsgSave');
+  const statusMsgFeedback = document.getElementById('statusMsgFeedback');
+  statusMsgSave.addEventListener('click', async () => {
+    if(!currentUser) return;
+    const msg = statusMsgInput.value.trim().slice(0, 60);
+    statusMsgSave.disabled = true;
+    try{
+      await supabaseClient.from('profiles').update({ status_msg: msg }).eq('id', currentUser.id);
+      currentStatusMsg = msg;
+      statusMsgFeedback.textContent = 'Statut enregistré !';
+      statusMsgFeedback.className = 'account-msg success';
+    }catch(e){
+      statusMsgFeedback.textContent = "Erreur, réessaie.";
+      statusMsgFeedback.className = 'account-msg error';
+    }
+    statusMsgSave.disabled = false;
+    setTimeout(() => { statusMsgFeedback.textContent = ''; }, 2500);
   });
 
   // Synchronise l'état local (ELO, record, stats) vers le compte en ligne
@@ -1359,11 +1452,14 @@
           currentPseudo = profile.pseudo;
           localPlaySeconds = profile.play_seconds || 0;
           currentEquippedTrophy = profile.equipped_trophy || null;
+          currentStatusMsg = profile.status_msg || '';
           saveElo(profile.elo);
           saveBest(profile.best_score);
           saveStats(Object.assign(defaultStats(), profile.data || {}));
           refreshBadge();
           startHeartbeat();
+          startBattlePolling();
+          statusMsgInput.value = currentStatusMsg;
         }
       }
     }catch(e){ /* pas de session active, tant pis */ }
@@ -1376,12 +1472,18 @@
   const leaderboardClose = document.getElementById('leaderboardClose');
   const leaderboardList = document.getElementById('leaderboardList');
 
+  function escapeHtml(str){
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
+  }
+
   async function renderLeaderboard(){
     leaderboardList.innerHTML = '<div style="text-align:center; opacity:0.6; padding:20px 0;">Chargement...</div>';
     try{
       const { data, error } = await supabaseClient
         .from('profiles')
-        .select('pseudo, elo, best_score, play_seconds, last_seen, equipped_trophy')
+        .select('pseudo, elo, best_score, play_seconds, last_seen, equipped_trophy, status_msg')
         .order('elo', { ascending: false })
         .limit(50);
       if(error) throw error;
@@ -1399,20 +1501,22 @@
 
         const seenInfo = getLastSeenInfo(row.last_seen);
         const trophyDef = row.equipped_trophy ? ACHIEVEMENTS.find(a => a.id === row.equipped_trophy) : null;
-        const trophyHtml = trophyDef ? '<span class="lb-trophy-icon" title="' + trophyDef.name + '">' + trophyDef.icon + '</span>' : '';
+        const trophyHtml = trophyDef ? '<span class="lb-trophy-icon" title="' + escapeHtml(trophyDef.name) + '">' + trophyDef.icon + '</span>' : '';
         const playTimeText = formatPlayTime(row.play_seconds || 0);
+        const statusHtml = row.status_msg ? '<div class="lb-status">💬 ' + escapeHtml(row.status_msg) + '</div>' : '';
 
         item.innerHTML =
           '<div class="lb-rank">' + medal + '</div>' +
           '<div class="lb-main">' +
             '<div class="lb-top-line">' +
-              '<span class="lb-pseudo">' + row.pseudo + '</span>' +
+              '<span class="lb-pseudo">' + escapeHtml(row.pseudo) + '</span>' +
               trophyHtml +
               '<span class="lb-dot ' + (seenInfo.online ? 'online' : '') + '"></span>' +
             '</div>' +
             '<div class="lb-sub-line">' +
               '🏆 ' + (row.best_score || 0) + '% · ⏱️ ' + playTimeText + ' · ' + seenInfo.text +
             '</div>' +
+            statusHtml +
           '</div>' +
           '<div class="lb-elo">' + row.elo + ' ELO</div>';
         leaderboardList.appendChild(item);
@@ -1425,6 +1529,333 @@
   leaderboardBtn.addEventListener('click', () => { renderLeaderboard(); leaderboardOverlay.classList.add('show'); });
   leaderboardClose.addEventListener('click', () => leaderboardOverlay.classList.remove('show'));
   leaderboardOverlay.addEventListener('click', (e) => { if(e.target === leaderboardOverlay) leaderboardOverlay.classList.remove('show'); });
+
+  // ---------- Mode Battle (1v1, tours alternés) ----------
+  const BATTLE_WINNER_ELO = 150;
+  const BATTLE_LOSER_ELO = 80;
+  const BATTLE_DRAW_ELO = 100;
+
+  const battleBtn = document.getElementById('battleBtn');
+  const battleOverlay = document.getElementById('battleOverlay');
+  const battleClose = document.getElementById('battleClose');
+  const battleContent = document.getElementById('battleContent');
+  const battleBanner = document.getElementById('battleBanner');
+
+  battleBtn.addEventListener('click', () => {
+    if(!currentUser){
+      showToast('👤 Crée un compte pour utiliser le mode Battle.', false);
+      return;
+    }
+    renderBattleModal();
+    battleOverlay.classList.add('show');
+  });
+  battleClose.addEventListener('click', () => battleOverlay.classList.remove('show'));
+  battleOverlay.addEventListener('click', (e) => { if(e.target === battleOverlay) battleOverlay.classList.remove('show'); });
+
+  // Récupère la battle la plus pertinente impliquant le joueur actuel
+  async function fetchMyActiveBattle(){
+    if(!currentUser) return null;
+    const { data, error } = await supabaseClient
+      .from('battles')
+      .select('*')
+      .or('player1_id.eq.' + currentUser.id + ',player2_id.eq.' + currentUser.id)
+      .in('status', ['pending', 'active', 'completed'])
+      .order('updated_at', { ascending: false })
+      .limit(1);
+    if(error || !data || data.length === 0) return null;
+    return data[0];
+  }
+
+  function myRoleIn(battle){
+    return battle.player1_id === currentUser.id ? 'player1' : 'player2';
+  }
+
+  async function sendBattleInvite(pseudo){
+    pseudo = pseudo.trim();
+    if(!pseudo){ return; }
+    if(pseudo.toLowerCase() === (currentPseudo || '').toLowerCase()){
+      showToast('Tu ne peux pas te défier toi-même 😅', false);
+      return;
+    }
+    try{
+      const { data: opponent, error: findError } = await supabaseClient
+        .from('profiles').select('id, pseudo').ilike('pseudo', pseudo).single();
+      if(findError || !opponent){
+        showToast('❌ Pseudo introuvable.', false);
+        return;
+      }
+      const { error: insertError } = await supabaseClient.from('battles').insert({
+        player1_id: currentUser.id,
+        player2_id: opponent.id,
+        player1_pseudo: currentPseudo,
+        player2_pseudo: opponent.pseudo,
+        status: 'pending',
+        turn: 'player1'
+      });
+      if(insertError) throw insertError;
+      showToast('⚔️ Défi envoyé à ' + opponent.pseudo + ' !', false);
+      renderBattleModal();
+    }catch(e){
+      showToast('Impossible d\'envoyer le défi.', false);
+    }
+  }
+
+  async function acceptBattle(battleId){
+    await supabaseClient.from('battles').update({ status: 'active', updated_at: new Date().toISOString() }).eq('id', battleId);
+    renderBattleModal();
+  }
+  async function declineBattle(battleId){
+    await supabaseClient.from('battles').update({ status: 'declined', updated_at: new Date().toISOString() }).eq('id', battleId);
+    renderBattleModal();
+  }
+  async function cancelBattle(battleId){
+    await supabaseClient.from('battles').update({ status: 'declined', updated_at: new Date().toISOString() }).eq('id', battleId);
+    renderBattleModal();
+  }
+
+  // Applique l'ELO de mon côté une seule fois (protégé par les colonnes *_elo_applied)
+  async function applyBattleEloIfNeeded(battle){
+    const role = myRoleIn(battle);
+    const alreadyApplied = role === 'player1' ? battle.player1_elo_applied : battle.player2_elo_applied;
+    if(alreadyApplied) return;
+
+    let delta;
+    if(battle.winner === 'draw') delta = BATTLE_DRAW_ELO;
+    else if(battle.winner === role) delta = BATTLE_WINNER_ELO;
+    else delta = BATTLE_LOSER_ELO;
+
+    const oldElo = loadElo();
+    const newElo = Math.max(0, oldElo + delta);
+    saveElo(newElo);
+    refreshBadge();
+    syncToCloud();
+
+    const updateField = role === 'player1' ? { player1_elo_applied: true } : { player2_elo_applied: true };
+    await supabaseClient.from('battles').update(updateField).eq('id', battle.id);
+
+    if(battle.winner === 'draw'){
+      showToast('🤝 Battle terminée : égalité ! +' + delta + ' ELO', false);
+    }else if(battle.winner === role){
+      showToast('🏆 Tu as gagné la Battle ! +' + delta + ' ELO', true);
+    }else{
+      showToast('💪 Battle perdue, mais +' + delta + ' ELO quand même !', false);
+    }
+  }
+
+  // Capture une petite image de la caméra (ou emoji de secours) pour la Battle
+  function captureBattlePhoto(){
+    try{
+      if(cameraReady && video.videoWidth > 0){
+        const c = document.createElement('canvas');
+        c.width = 240; c.height = 240;
+        const ctx = c.getContext('2d');
+        ctx.translate(240, 0); ctx.scale(-1, 1); // garde le rendu miroir cohérent
+        ctx.drawImage(video, 0, 0, 240, 240);
+        return c.toDataURL('image/jpeg', 0.6);
+      }
+    }catch(e){}
+    return null;
+  }
+
+  // Appelée depuis le flux de scan principal quand c'est mon tour dans une Battle active
+  async function submitBattleTurn(percent){
+    const battleId = myTurnBattleId;
+    const role = myTurnBattleRole;
+    myTurnBattleId = null;
+    myTurnBattleRole = null;
+    if(!battleId || !role) return;
+
+    const photo = captureBattlePhoto();
+
+    try{
+      const { data: battle } = await supabaseClient.from('battles').select('*').eq('id', battleId).single();
+      if(!battle || battle.status !== 'active') return;
+
+      if(role === 'player1'){
+        if(battle.player2_percent != null){
+          // l'adversaire avait déjà joué avant moi (cas rare) : on termine direct
+          await finalizeBattle(battleId, percent, photo, battle.player2_percent, battle.player2_photo);
+        }else{
+          await supabaseClient.from('battles').update({
+            player1_percent: percent, player1_photo: photo, turn: 'player2', updated_at: new Date().toISOString()
+          }).eq('id', battleId);
+          showToast('📸 Scan envoyé ! En attente de ' + battle.player2_pseudo + '...', false);
+        }
+      }else{
+        if(battle.player1_percent != null){
+          await finalizeBattle(battleId, battle.player1_percent, battle.player1_photo, percent, photo);
+        }else{
+          await supabaseClient.from('battles').update({
+            player2_percent: percent, player2_photo: photo, turn: 'player1', updated_at: new Date().toISOString()
+          }).eq('id', battleId);
+          showToast('📸 Scan envoyé ! En attente de ' + battle.player1_pseudo + '...', false);
+        }
+      }
+      updateBattleBanner();
+    }catch(e){
+      showToast('Erreur lors de l\'envoi du scan de Battle.', false);
+    }
+  }
+
+  async function finalizeBattle(battleId, p1percent, p1photo, p2percent, p2photo){
+    let winner;
+    if(p1percent > p2percent) winner = 'player1';
+    else if(p2percent > p1percent) winner = 'player2';
+    else winner = 'draw';
+
+    await supabaseClient.from('battles').update({
+      player1_percent: p1percent, player1_photo: p1photo,
+      player2_percent: p2percent, player2_photo: p2photo,
+      status: 'completed', winner, updated_at: new Date().toISOString()
+    }).eq('id', battleId);
+  }
+
+  function updateBattleBanner(){
+    if(!currentUser){ battleBanner.classList.remove('show', 'pulse'); return; }
+    fetchMyActiveBattle().then(battle => {
+      if(!battle || battle.status === 'declined'){
+        battleBanner.classList.remove('show', 'pulse');
+        battleBtn.classList.remove('attention');
+        myTurnBattleId = null;
+        return;
+      }
+      const role = myRoleIn(battle);
+      const opponentPseudo = role === 'player1' ? battle.player2_pseudo : battle.player1_pseudo;
+
+      if(battle.status === 'pending'){
+        if(role === 'player2'){
+          battleBanner.textContent = '⚔️ ' + battle.player1_pseudo + ' te défie en Battle ! Clique pour répondre.';
+          battleBanner.classList.add('show', 'pulse');
+          battleBtn.classList.add('attention');
+        }else{
+          battleBanner.textContent = '⏳ En attente que ' + opponentPseudo + ' accepte ton défi...';
+          battleBanner.classList.add('show');
+          battleBanner.classList.remove('pulse');
+        }
+        myTurnBattleId = null;
+      }else if(battle.status === 'active'){
+        const myTurn = battle.turn === role;
+        if(myTurn){
+          battleBanner.textContent = '🎯 À toi de scanner pour la Battle contre ' + opponentPseudo + ' ! (utilise le bouton de scan)';
+          battleBanner.classList.add('show', 'pulse');
+          battleBtn.classList.add('attention');
+          myTurnBattleId = battle.id;
+          myTurnBattleRole = role;
+        }else{
+          battleBanner.textContent = '⏳ En attente que ' + opponentPseudo + ' scanne son tour...';
+          battleBanner.classList.add('show');
+          battleBanner.classList.remove('pulse');
+          myTurnBattleId = null;
+        }
+      }else if(battle.status === 'completed'){
+        myTurnBattleId = null;
+        applyBattleEloIfNeeded(battle);
+        if(lastSeenBattleId !== battle.id){
+          lastSeenBattleId = battle.id;
+          battleBanner.textContent = '✅ Battle terminée contre ' + opponentPseudo + ' — clique pour voir le résultat.';
+          battleBanner.classList.add('show', 'pulse');
+          battleBtn.classList.add('attention');
+        }else{
+          battleBanner.classList.remove('show', 'pulse');
+          battleBtn.classList.remove('attention');
+        }
+      }
+    }).catch(()=>{});
+  }
+
+  function startBattlePolling(){
+    if(battlePollInterval) return;
+    updateBattleBanner();
+    battlePollInterval = setInterval(updateBattleBanner, 8000);
+  }
+  function stopBattlePolling(){
+    if(battlePollInterval){ clearInterval(battlePollInterval); battlePollInterval = null; }
+    battleBanner.classList.remove('show', 'pulse');
+    battleBtn.classList.remove('attention');
+  }
+
+  battleBanner.addEventListener('click', () => { renderBattleModal(); battleOverlay.classList.add('show'); });
+
+  async function renderBattleModal(){
+    if(!currentUser){
+      battleContent.innerHTML = '<p class="account-hint">Connecte-toi pour utiliser le mode Battle.</p>';
+      return;
+    }
+    battleContent.innerHTML = '<div style="text-align:center; opacity:0.6; padding:20px 0;">Chargement...</div>';
+    const battle = await fetchMyActiveBattle();
+
+    if(!battle || battle.status === 'declined'){
+      battleContent.innerHTML =
+        '<p class="account-hint">Défie un joueur en tapant son pseudo exact. Vous scannerez chacun votre tour, et le gagnant (le plus haut %) remporte le plus d\'ELO !</p>' +
+        '<input class="account-input" id="battleOpponentInput" type="text" placeholder="Pseudo de l\'adversaire" maxlength="20">' +
+        '<button class="btn account-submit" id="battleSendBtn" type="button">Envoyer le défi</button>';
+      document.getElementById('battleSendBtn').addEventListener('click', () => {
+        sendBattleInvite(document.getElementById('battleOpponentInput').value);
+      });
+      return;
+    }
+
+    const role = myRoleIn(battle);
+    const opponentPseudo = role === 'player1' ? battle.player2_pseudo : battle.player1_pseudo;
+
+    if(battle.status === 'pending'){
+      if(role === 'player2'){
+        battleContent.innerHTML =
+          '<p class="account-hint"><strong>' + escapeHtml(battle.player1_pseudo) + '</strong> te défie en Battle !</p>' +
+          '<div class="battle-row">' +
+            '<button class="btn account-submit" id="battleAcceptBtn" type="button">Accepter</button>' +
+            '<button class="btn account-submit btn-decline" id="battleDeclineBtn" type="button">Refuser</button>' +
+          '</div>';
+        document.getElementById('battleAcceptBtn').addEventListener('click', () => acceptBattle(battle.id));
+        document.getElementById('battleDeclineBtn').addEventListener('click', () => declineBattle(battle.id));
+      }else{
+        battleContent.innerHTML =
+          '<p class="account-hint">⏳ En attente que <strong>' + escapeHtml(opponentPseudo) + '</strong> accepte ton défi...</p>' +
+          '<button class="btn account-submit btn-secondary" id="battleCancelBtn" type="button">Annuler le défi</button>';
+        document.getElementById('battleCancelBtn').addEventListener('click', () => cancelBattle(battle.id));
+      }
+      return;
+    }
+
+    if(battle.status === 'active'){
+      const myTurn = battle.turn === role;
+      battleContent.innerHTML = myTurn
+        ? '<p class="account-hint">🎯 C\'est ton tour ! Ferme cette fenêtre et clique sur le bouton de scan principal pour jouer.</p>'
+        : '<p class="account-hint">⏳ En attente que <strong>' + escapeHtml(opponentPseudo) + '</strong> scanne son tour...</p>';
+      return;
+    }
+
+    if(battle.status === 'completed'){
+      const iAmP1 = role === 'player1';
+      const myPercent = iAmP1 ? battle.player1_percent : battle.player2_percent;
+      const oppPercent = iAmP1 ? battle.player2_percent : battle.player1_percent;
+      const myPhoto = iAmP1 ? battle.player1_photo : battle.player2_photo;
+      const oppPhoto = iAmP1 ? battle.player2_photo : battle.player1_photo;
+      const iWon = battle.winner === role;
+      const isDraw = battle.winner === 'draw';
+
+      battleContent.innerHTML =
+        '<div class="battle-result-title">' + (isDraw ? '🤝 Égalité !' : (iWon ? '🏆 Tu as gagné !' : '😅 Défaite')) + '</div>' +
+        '<div class="battle-result-sub">contre ' + escapeHtml(opponentPseudo) + '</div>' +
+        '<div class="battle-vs">' +
+          '<div class="battle-side' + (!isDraw && iWon ? ' winner' : '') + '">' +
+            '<img src="' + (myPhoto || '') + '" onerror="this.style.display=\'none\'">' +
+            '<div class="bside-pseudo">' + escapeHtml(currentPseudo) + '</div>' +
+            '<div class="bside-percent">' + myPercent + '%</div>' +
+          '</div>' +
+          '<div class="battle-vs-label">VS</div>' +
+          '<div class="battle-side' + (!isDraw && !iWon ? ' winner' : '') + '">' +
+            '<img src="' + (oppPhoto || '') + '" onerror="this.style.display=\'none\'">' +
+            '<div class="bside-pseudo">' + escapeHtml(opponentPseudo) + '</div>' +
+            '<div class="bside-percent">' + oppPercent + '%</div>' +
+          '</div>' +
+        '</div>' +
+        '<button class="btn account-submit" id="battleNewBtn" type="button">Nouvelle Battle</button>';
+      document.getElementById('battleNewBtn').addEventListener('click', () => {
+        supabaseClient.from('battles').update({ status: 'declined' }).eq('id', battle.id).then(() => renderBattleModal());
+      });
+    }
+  }
 
   function handleNewResult(percent){
     const isFlocko = percent >= 50;
@@ -1740,6 +2171,7 @@
         resultCard.classList.add('show','overload-card');
 
         handleNewResult(percent);
+        if(myTurnBattleId){ submitBattleTurn(percent); }
 
         scanBtn.disabled = false;
         scanBtn.textContent = "Relancer le scan";
@@ -1785,6 +2217,7 @@
       resultCard.classList.add('show');
 
       handleNewResult(percent);
+      if(myTurnBattleId){ submitBattleTurn(percent); }
 
       scanBtn.disabled = false;
       scanBtn.textContent = "Relancer le scan";
