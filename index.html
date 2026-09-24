@@ -213,6 +213,27 @@
   .account-welcome{ font-size:0.9rem; margin-bottom:6px; }
   .account-hint{ font-size:0.78rem; opacity:0.65; margin-bottom:16px; }
 
+  .battle-search-wrap{ position:relative; }
+  .battle-suggestions{
+    display:none;
+    position:absolute; top:100%; left:0; right:0;
+    margin-top:-6px;
+    background:#1a0000;
+    border:1px solid rgba(255,255,255,0.15);
+    border-radius:0 0 10px 10px;
+    max-height:180px; overflow-y:auto;
+    z-index:10;
+  }
+  .battle-suggestions.show{ display:block; }
+  .battle-suggestion-item{
+    padding:10px 14px;
+    font-size:0.85rem;
+    cursor:pointer;
+    border-bottom:1px solid rgba(255,255,255,0.06);
+  }
+  .battle-suggestion-item:last-child{ border-bottom:none; }
+  .battle-suggestion-item:hover{ background:rgba(255,255,255,0.08); }
+
   .lb-item{
     display:flex; align-items:center; gap:10px;
     background:rgba(255,255,255,0.04);
@@ -276,6 +297,13 @@
     border-radius:14px; border:2px solid rgba(255,255,255,0.15);
   }
   .battle-side .bside-pseudo{ font-size:0.8rem; font-weight:700; margin-top:6px; }
+  .battle-side-pending{
+    width:100%; max-width:130px; aspect-ratio:1/1;
+    border-radius:14px; border:2px dashed rgba(255,255,255,0.2);
+    display:flex; align-items:center; justify-content:center;
+    font-size:2rem; opacity:0.4;
+    margin:0 auto;
+  }
   .battle-side .bside-percent{ font-size:1.3rem; font-weight:900; }
   .battle-side.winner img{ border-color:#ffd23f; box-shadow:0 0 16px rgba(255,210,63,0.5); }
   .battle-side.winner .bside-percent{ color:#ffd23f; }
@@ -1883,11 +1911,50 @@
 
     if(!battle || battle.status === 'declined'){
       battleContent.innerHTML =
-        '<p class="account-hint">Défie un joueur en tapant son pseudo exact. Vous scannerez chacun votre tour, et le gagnant (le plus haut %) remporte le plus d\'ELO !</p>' +
-        '<input class="account-input" id="battleOpponentInput" type="text" placeholder="Pseudo de l\'adversaire" maxlength="20">' +
+        '<p class="account-hint">Défie un joueur en tapant son pseudo. Vous scannerez chacun votre tour, et le gagnant (le plus haut %) remporte le plus d\'ELO !</p>' +
+        '<div class="battle-search-wrap">' +
+          '<input class="account-input" id="battleOpponentInput" type="text" placeholder="Pseudo de l\'adversaire" maxlength="20" autocomplete="off">' +
+          '<div class="battle-suggestions" id="battleSuggestions"></div>' +
+        '</div>' +
         '<button class="btn account-submit" id="battleSendBtn" type="button">Envoyer le défi</button>';
+
+      const oppInput = document.getElementById('battleOpponentInput');
+      const suggestBox = document.getElementById('battleSuggestions');
+      let suggestTimer = null;
+
+      oppInput.addEventListener('input', () => {
+        const q = oppInput.value.trim();
+        clearTimeout(suggestTimer);
+        if(q.length < 1){ suggestBox.innerHTML = ''; suggestBox.classList.remove('show'); return; }
+        suggestTimer = setTimeout(async () => {
+          try{
+            const { data } = await supabaseClient
+              .from('profiles')
+              .select('pseudo')
+              .ilike('pseudo', q + '%')
+              .neq('id', currentUser.id)
+              .limit(6);
+            if(!data || data.length === 0){ suggestBox.innerHTML = ''; suggestBox.classList.remove('show'); return; }
+            suggestBox.innerHTML = data.map(row =>
+              '<div class="battle-suggestion-item">' + escapeHtml(row.pseudo) + '</div>'
+            ).join('');
+            suggestBox.classList.add('show');
+            suggestBox.querySelectorAll('.battle-suggestion-item').forEach(el => {
+              el.addEventListener('click', () => {
+                oppInput.value = el.textContent;
+                suggestBox.innerHTML = '';
+                suggestBox.classList.remove('show');
+              });
+            });
+          }catch(e){}
+        }, 250);
+      });
+      document.addEventListener('click', (e) => {
+        if(e.target !== oppInput) suggestBox.classList.remove('show');
+      });
+
       document.getElementById('battleSendBtn').addEventListener('click', () => {
-        sendBattleInvite(document.getElementById('battleOpponentInput').value);
+        sendBattleInvite(oppInput.value);
       });
       return;
     }
@@ -1916,9 +1983,36 @@
 
     if(battle.status === 'active'){
       const myTurn = battle.turn === role;
-      battleContent.innerHTML = myTurn
-        ? '<p class="account-hint">🎯 C\'est ton tour ! Ferme cette fenêtre et clique sur le bouton de scan principal pour jouer.</p>'
-        : '<p class="account-hint">⏳ En attente que <strong>' + escapeHtml(opponentPseudo) + '</strong> scanne son tour...</p>';
+      const iAmP1 = role === 'player1';
+      const myPercent = iAmP1 ? battle.player1_percent : battle.player2_percent;
+      const oppPercent = iAmP1 ? battle.player2_percent : battle.player1_percent;
+      const myPhoto = iAmP1 ? battle.player1_photo : battle.player2_photo;
+      const oppPhoto = iAmP1 ? battle.player2_photo : battle.player1_photo;
+
+      const sideHtml = (photo, pseudo, percentVal) => {
+        if(percentVal == null){
+          return '<div class="battle-side">' +
+            '<div class="battle-side-pending">❓</div>' +
+            '<div class="bside-pseudo">' + escapeHtml(pseudo) + '</div>' +
+            '<div class="bside-percent" style="opacity:0.4;">en attente...</div>' +
+          '</div>';
+        }
+        return '<div class="battle-side">' +
+          '<img src="' + (photo || '') + '" onerror="this.style.display=\'none\'">' +
+          '<div class="bside-pseudo">' + escapeHtml(pseudo) + '</div>' +
+          '<div class="bside-percent">' + percentVal + '%</div>' +
+        '</div>';
+      };
+
+      battleContent.innerHTML =
+        (myTurn
+          ? '<p class="account-hint">🎯 C\'est ton tour ! Ferme cette fenêtre et clique sur le bouton de scan principal pour jouer.</p>'
+          : '<p class="account-hint">⏳ En attente que <strong>' + escapeHtml(opponentPseudo) + '</strong> scanne son tour...</p>') +
+        '<div class="battle-vs">' +
+          sideHtml(myPhoto, currentPseudo, myPercent) +
+          '<div class="battle-vs-label">VS</div>' +
+          sideHtml(oppPhoto, opponentPseudo, oppPercent) +
+        '</div>';
       return;
     }
 
@@ -1958,13 +2052,18 @@
     const isFlocko = percent >= 50;
     const isOverBar = percent > 100;
 
-    // --- ELO ---
+    // --- ELO (uniquement si connecté : pas de progression en mode démo) ---
     const oldElo = loadElo();
     const oldRank = getEloRank(oldElo);
-    const change = computeEloChange(percent);
-    const newElo = Math.max(0, oldElo + change);
-    saveElo(newElo);
-    const newRank = getEloRank(newElo);
+    let newElo = oldElo;
+    let newRank = oldRank;
+    let change = 0;
+    if(currentUser){
+      change = computeEloChange(percent);
+      newElo = Math.max(0, oldElo + change);
+      saveElo(newElo);
+      newRank = getEloRank(newElo);
+    }
 
     // --- Record ---
     const best = loadBest();
@@ -1989,11 +2088,13 @@
     refreshBadge();
 
     // --- Notifications ---
-    if(newRank.name !== oldRank.name){
-      const wentUp = newElo > oldElo;
-      showToast((wentUp ? '🏆 Rang supérieur : ' : '📉 Rang inférieur : ') + newRank.icon + ' ' + newRank.name, wentUp);
-    }else if(change !== 0){
-      showToast((change > 0 ? '+' : '') + change + ' ELO', false);
+    if(currentUser){
+      if(newRank.name !== oldRank.name){
+        const wentUp = newElo > oldElo;
+        showToast((wentUp ? '🏆 Rang supérieur : ' : '📉 Rang inférieur : ') + newRank.icon + ' ' + newRank.name, wentUp);
+      }else if(change !== 0){
+        showToast((change > 0 ? '+' : '') + change + ' ELO', false);
+      }
     }
     if(beatRecord){
       showToast('✨ Nouveau record personnel : ' + percent + '% !', false);
@@ -2011,7 +2112,7 @@
       if(!hintShown){
         try{ localStorage.setItem('flockoAccountHintShown', '1'); }catch(e){}
         setTimeout(() => {
-          showToast('👤 Crée un compte (bouton en haut) pour sauvegarder ta progression et apparaître au classement !', false);
+          showToast('👤 Crée un compte (bouton en haut) pour gagner de l\'ELO, sauvegarder ta progression et apparaître au classement !', false);
         }, 1600);
       }
     }
